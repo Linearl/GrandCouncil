@@ -38,7 +38,12 @@ class ConnectionViewModel(
 
     fun openEditor(profile: ConnectionProfile? = null) {
         _uiState.value = _uiState.value.copy(
-            editing = profile,
+            // 新建（无参）时用空草稿，否则 editing=null 导致对话框不渲染
+            editing = profile ?: ConnectionProfile(
+                id = ConnectionProfile.newId(),
+                name = "",
+                baseUrl = "",
+            ),
             isNewEditor = profile == null,
         )
     }
