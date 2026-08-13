@@ -31,6 +31,8 @@ data class StatusDto(
     /** 实测为整数（token 数），源码 ContextSnapshot 返回 map[string]int */
     val used: Int? = null,
     val window: Int? = null,
+    /** 工具审批模式：ask | auto | yolo（POST /tool-approval-mode 切换） */
+    val toolApprovalMode: String? = null,
 )
 
 /** GET /history 响应元素（serve.go:838 historyMessage，JSON 数组） */
@@ -50,3 +52,54 @@ data class HistoryToolCallDto(
     val name: String = "",
     val arguments: String = "",
 )
+
+// ---- SSE 事件（serve /events，源码 internal/event/event.go + Web UI 解析确认） ----
+
+/** /events 流事件（扁平结构：kind + 各 payload 字段共存） */
+@Serializable
+data class ServeEventDto(
+    val kind: String = "",
+    val text: String = "",
+    val reasoning: String = "",
+    val tool: ToolEventDto? = null,
+    val approval: ApprovalEventDto? = null,
+    val err: String? = null,
+    val outcome: String? = null,
+)
+
+/** tool_dispatch / tool_result 的 tool 字段 */
+@Serializable
+data class ToolEventDto(
+    val id: String = "",
+    val name: String = "",
+    val args: String = "",
+    val output: String = "",
+    val err: String = "",
+    val readOnly: Boolean = false,
+    val durationMs: Long = 0,
+)
+
+/** approval_request 的 approval 字段 */
+@Serializable
+data class ApprovalEventDto(
+    val id: String = "",
+    val tool: String = "",
+    val subject: String = "",
+)
+
+/** 事件 kind 常量（serve Web UI index.html switch 确认） */
+object ServeEventKind {
+    const val TURN_STARTED = "turn_started"
+    const val REASONING = "reasoning"
+    const val TEXT = "text"
+    const val MESSAGE = "message"
+    const val TOOL_DISPATCH = "tool_dispatch"
+    const val TOOL_RESULT = "tool_result"
+    const val TOOL_PROGRESS = "tool_progress"
+    const val USAGE = "usage"
+    const val NOTICE = "notice"
+    const val PHASE = "phase"
+    const val APPROVAL_REQUEST = "approval_request"
+    const val ASK_REQUEST = "ask_request"
+    const val TURN_DONE = "turn_done"
+}

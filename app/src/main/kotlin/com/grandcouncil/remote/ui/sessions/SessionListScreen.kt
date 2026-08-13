@@ -63,6 +63,8 @@ import java.time.format.DateTimeFormatter
 fun SessionListScreen(
     onNavigateToConfig: () -> Unit = {},
     onNavigateToWizard: () -> Unit = {},
+    onDetailOpen: () -> Unit = {},
+    onDetailClose: () -> Unit = {},
     viewModel: SessionListViewModel = viewModel(
         factory = SessionListViewModelFactory(LocalContext.current.applicationContext),
     ),
@@ -71,14 +73,18 @@ fun SessionListScreen(
     var profileMenuOpen by remember { mutableStateOf(false) }
     var selectedSession by remember { mutableStateOf<RemoteSession?>(null) }
 
-    // 详情页：覆盖整个会话页
+    // 详情页：覆盖整个会话页（全屏，隐藏底部三栏）
     val active = state.activeProfile
     val selected = selectedSession
     if (active != null && selected != null) {
+        LaunchedEffect(selected) { onDetailOpen() }
         SessionDetailScreen(
             profile = active,
             session = selected,
-            onBack = { selectedSession = null },
+            onBack = {
+                selectedSession = null
+                onDetailClose()
+            },
         )
         return
     }
@@ -133,10 +139,10 @@ fun SessionListScreen(
                         viewModel.selectProfile(it)
                     },
                 )
-                // 服务器状态行（GET /status）
+                // 服务器状态（合并进连接选择栏下方的细行，不占主窗口）
                 state.serveInfo?.let { info ->
                     Text(
-                        "服务器：${info.label} · ${if (info.running) "运行中" else "空闲"} · ${info.cwd}",
+                        "服务器：${info.label} · ${if (info.running) "运行中" else "空闲"}",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
@@ -299,6 +305,7 @@ private fun parseSessionDate(sessionId: String): LocalDate? = runCatching {
     LocalDate.parse(prefix, DateTimeFormatter.BASIC_ISO_DATE)
 }.getOrNull()
 
+/** 连接选择栏（紧凑单行：状态点 + 连接名 + 服务器状态；主窗口不浪费给连接详情） */
 @Composable
 private fun ProfileSelector(
     profiles: List<ConnectionProfile>,
@@ -310,14 +317,20 @@ private fun ProfileSelector(
     Box(Modifier.fillMaxWidth()) {
         Card(
             onClick = onToggle,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
         ) {
-            ListItem(
-                headlineContent = { Text(active?.name ?: "选择连接") },
-                supportingContent = {
-                    Text("${active?.type?.label.orEmpty()} · ${active?.baseUrl.orEmpty()}")
-                },
-            )
+            Row(
+                Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("●", color = MaterialTheme.colorScheme.primary)
+                Text(
+                    active?.name ?: "选择连接",
+                    style = MaterialTheme.typography.titleSmall,
+                    modifier = Modifier.padding(horizontal = 8.dp),
+                )
+                Text("▾", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
         DropdownMenu(expanded = expanded, onDismissRequest = onToggle) {
             profiles.forEach { profile ->

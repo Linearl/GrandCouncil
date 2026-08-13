@@ -12,6 +12,9 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -35,46 +38,50 @@ fun MainScreen() {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
+    // 详情页全屏：进入会话详情时隐藏底部三栏（聊天页底部应让位给输入框）
+    var detailOpen by remember { mutableStateOf(false) }
 
     Scaffold(
         bottomBar = {
-            NavigationBar {
-                NavigationBarItem(
-                    selected = currentRoute == NavRoutes.SESSIONS,
-                    onClick = {
-                        navController.navigate(NavRoutes.SESSIONS) {
-                            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
-                        }
-                    },
-                    icon = { Icon(Icons.AutoMirrored.Filled.List, contentDescription = null) },
-                    label = { Text(stringResource(R.string.tab_sessions)) },
-                )
-                NavigationBarItem(
-                    selected = currentRoute == NavRoutes.CONFIG,
-                    onClick = {
-                        navController.navigate(NavRoutes.CONFIG) {
-                            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
-                        }
-                    },
-                    icon = { Icon(Icons.Filled.Settings, contentDescription = null) },
-                    label = { Text(stringResource(R.string.tab_connections)) },
-                )
-                NavigationBarItem(
-                    selected = currentRoute == NavRoutes.WIZARD,
-                    onClick = {
-                        navController.navigate(NavRoutes.WIZARD) {
-                            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
-                        }
-                    },
-                    icon = { Icon(Icons.Filled.Info, contentDescription = null) },
-                    label = { Text(stringResource(R.string.tab_wizard)) },
-                )
+            if (!detailOpen) {
+                NavigationBar {
+                    NavigationBarItem(
+                        selected = currentRoute == NavRoutes.SESSIONS,
+                        onClick = {
+                            navController.navigate(NavRoutes.SESSIONS) {
+                                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
+                        },
+                        icon = { Icon(Icons.AutoMirrored.Filled.List, contentDescription = null) },
+                        label = { Text(stringResource(R.string.tab_sessions)) },
+                    )
+                    NavigationBarItem(
+                        selected = currentRoute == NavRoutes.CONFIG,
+                        onClick = {
+                            navController.navigate(NavRoutes.CONFIG) {
+                                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
+                        },
+                        icon = { Icon(Icons.Filled.Settings, contentDescription = null) },
+                        label = { Text(stringResource(R.string.tab_connections)) },
+                    )
+                    NavigationBarItem(
+                        selected = currentRoute == NavRoutes.WIZARD,
+                        onClick = {
+                            navController.navigate(NavRoutes.WIZARD) {
+                                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
+                        },
+                        icon = { Icon(Icons.Filled.Info, contentDescription = null) },
+                        label = { Text(stringResource(R.string.tab_wizard)) },
+                    )
+                }
             }
         },
     ) { innerPadding ->
@@ -97,6 +104,8 @@ fun MainScreen() {
                             launchSingleTop = true
                         }
                     },
+                    onDetailOpen = { detailOpen = true },
+                    onDetailClose = { detailOpen = false },
                 )
             }
             composable(NavRoutes.CONFIG) { ConfigScreen() }

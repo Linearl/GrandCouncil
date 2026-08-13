@@ -11,22 +11,31 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -35,63 +44,21 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
-import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.grandcouncil.remote.api.dto.ApprovalEventDto
 import com.grandcouncil.remote.connection.ConnectionProfile
 import com.grandcouncil.remote.model.HeldBy
 import com.grandcouncil.remote.model.RemoteMessage
 import com.grandcouncil.remote.model.RemoteSession
 import com.grandcouncil.remote.model.Role
+import com.grandcouncil.remote.model.ToolCallStatus
 import com.grandcouncil.remote.repository.SessionRepository
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.launch
-
-/** 会话详情状态 */
-data class SessionDetailUiState(
-    val loading: Boolean = true,
-    val messages: List<RemoteMessage> = emptyList(),
-    val error: String? = null,
-)
-
-class SessionDetailViewModel(
-    private val profile: ConnectionProfile,
-    private val session: RemoteSession,
-    private val repository: SessionRepository,
-) : ViewModel() {
-
-    private val _uiState = MutableStateFlow(SessionDetailUiState())
-    val uiState: StateFlow<SessionDetailUiState> = _uiState.asStateFlow()
-
-    init {
-        load()
-    }
-
-    fun load() {
-        viewModelScope.launch {
-            _uiState.value = SessionDetailUiState(loading = true)
-            repository.loadHistory(profile, session).fold(
-                onSuccess = { messages ->
-                    _uiState.value = SessionDetailUiState(
-                        loading = false,
-                        messages = messages.reversed(), // 新消息在下，聊天式布局
-                    )
-                },
-                onFailure = { e ->
-                    _uiState.value = SessionDetailUiState(
-                        loading = false,
-                        error = e.message ?: "加载失败",
-                    )
-                },
-            )
-        }
-    }
-}
+import com.grandcouncil.remote.ui.theme.ReasonixColors
 
 /**
- * 会话详情页（只读历史，M1 前奏）：点击会话进入，展示 /history 消息列表。
- * M2 将在此页加入输入框与 SSE 流式聊天、审批卡片。
+ * 会话详情（P0-2 聊天页）：
+ * 全屏（底部三栏隐藏），底部输入框（busy 时变 Stop）。
+ * 消息流：用户/助手气泡、推理折叠、工具卡片（状态色）、审批卡片、状态条。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -109,6 +76,21 @@ fun SessionDetailScreen(
     ),
 ) {
     val state by viewModel.uiState.collectAsState()
+    var input by remember { mutableStateOf("") }
+    val listState = rememberLazyListState()
+
+    // 详情页消费返回键（返回会话列表而非退出 App）
+    androidx.activity.compose.BackHandler(onBack = onBack)
+
+    // 每次进入详情强制重新加载（VM 可能被 NavBackStackEntry 复用，避免旧快照/残留流式状态）
+    LaunchedEffect(Unit) { viewModel.load() }
+
+    // 新消息/流式变化时自动滚到底（首帧后执行，避免未布局时滚动异常）
+    LaunchedEffect(state.messages.size, state.streaming?.text?.length, state.streaming?.tools?.size) {
+        kotlinx.coroutines.delay(120)
+        val count = state.messages.size + if (state.streaming != null) 1 else 0
+        if (count > 0) listState.animateScrollToItem(count - 1)
+    }
 
     Scaffold(
         topBar = {
@@ -130,56 +112,143 @@ fun SessionDetailScreen(
                             modifier = Modifier.padding(end = 12.dp),
                         )
                     }
+                    // 审批模式切换（询问/自动/YOLO——避免工具调用被审批卡住）
+                    ApprovalModeMenu(
+                        current = state.approvalMode,
+                        onChange = { viewModel.setApprovalMode(it) },
+                    )
                 },
             )
         },
+        bottomBar = {
+            Column {
+                if (state.running) {
+                    Text(
+                        state.statusText,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f))
+                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                    )
+                }
+                InputBar(
+                    input = input,
+                    running = state.running,
+                    readOnly = session.heldBy == HeldBy.OTHER,
+                    onInput = { input = it },
+                    onSend = {
+                        viewModel.send(input)
+                        input = ""
+                    },
+                    onStop = { viewModel.cancel() },
+                )
+            }
+        },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
-            // 只读会话提示（P0-1：桌面版持有时显示，发送消息将接管——M2 接入）
             if (session.heldBy == HeldBy.OTHER) {
                 Surface(
                     color = MaterialTheme.colorScheme.secondaryContainer,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text(
-                        "该会话被其他设备（桌面版等）持有，当前只读查看；发送消息将接管会话",
+                        "该会话被其他设备持有，只读查看；发送消息将接管会话",
                         style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                     )
                 }
             }
             when {
-            state.loading -> Box(
-                Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center,
-            ) { CircularProgressIndicator() }
-
-            state.error != null -> Box(
-                Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center,
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(state.error!!, color = MaterialTheme.colorScheme.error)
-                    TextButton(onClick = { viewModel.load() }) { Text("重试") }
+                state.loading -> {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator()
+                    }
                 }
-            }
 
-            state.messages.isEmpty() -> Box(
-                Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center,
-            ) { Text("该会话暂无消息") }
+                state.error != null && state.messages.isEmpty() && state.streaming == null -> {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(state.error!!, color = MaterialTheme.colorScheme.error)
+                            TextButton(onClick = { viewModel.load() }) { Text("重试") }
+                        }
+                    }
+                }
 
-            else -> LazyColumn(
-                Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                items(state.messages, key = { it.id }) { message ->
-                    MessageItem(message)
+                else -> {
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.weight(1f).fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 10.dp),
+                    ) {
+                    // 不用 key：历史消息 id 无稳定来源，key 冲突会静默跳过渲染
+                    items(state.messages) { message ->
+                        MessageItem(message)
+                    }
+                    state.streaming?.let { streaming ->
+                        if (!streaming.isEmpty) {
+                            item(key = "streaming") {
+                                StreamingItem(streaming)
+                            }
+                        }
+                    }
+                    state.pendingApproval?.let { approval ->
+                        item(key = "approval") {
+                            ApprovalCard(approval, viewModel)
+                        }
+                    }
+                }
                 }
             }
         }
     }
 }
+
+/** 底部输入栏：普通态=输入框+发送；busy 态=Stop 键（输入清空时） */
+@Composable
+private fun InputBar(
+    input: String,
+    running: Boolean,
+    readOnly: Boolean,
+    onInput: (String) -> Unit,
+    onSend: () -> Unit,
+    onStop: () -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surface)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        OutlinedTextField(
+            value = input,
+            onValueChange = onInput,
+            placeholder = { Text(if (readOnly) "只读会话（发送将接管）" else "回复或输入指令…") },
+            enabled = !readOnly,
+            modifier = Modifier.weight(1f),
+            maxLines = 3,
+        )
+        if (running && input.isBlank()) {
+            IconButton(
+                onClick = onStop,
+                modifier = Modifier.background(MaterialTheme.colorScheme.error, CircleShape),
+            ) {
+                Text("■", color = MaterialTheme.colorScheme.onError)
+            }
+        } else {
+            IconButton(
+                onClick = onSend,
+                enabled = input.isNotBlank() && !readOnly,
+                modifier = Modifier.background(MaterialTheme.colorScheme.primary, CircleShape),
+            ) {
+                Text("↑", color = MaterialTheme.colorScheme.onPrimary)
+            }
+        }
+    }
 }
 
 @Composable
@@ -193,30 +262,21 @@ private fun MessageItem(message: RemoteMessage) {
             Text(
                 message.content,
                 style = MaterialTheme.typography.bodySmall,
+                maxLines = 8,
+                overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(10.dp),
             )
         }
 
-        Role.TOOL -> Surface(
-            color = MaterialTheme.colorScheme.surfaceVariant,
-            shape = MaterialTheme.shapes.medium,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
-        ) {
-            Column(Modifier.padding(10.dp)) {
-                Text(
-                    message.toolCalls.firstOrNull()?.let { "工具：${it.name}" } ?: "工具调用",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-                Text(
-                    message.content.take(300),
-                    style = MaterialTheme.typography.bodySmall,
-                    fontFamily = FontFamily.Monospace,
-                    maxLines = 6,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
+        Role.TOOL -> ToolCard(
+            id = message.toolCalls.firstOrNull()?.id ?: "",
+            name = message.toolCalls.firstOrNull()?.name ?: "工具",
+            args = message.toolCalls.firstOrNull()?.arguments ?: "",
+            output = message.content,
+            error = "",
+            durationMs = 0,
+            status = ToolCallStatus.DONE,
+        )
 
         else -> {
             val isUser = message.role == Role.USER
@@ -225,38 +285,312 @@ private fun MessageItem(message: RemoteMessage) {
                 horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
             ) {
                 Surface(
-                    color = if (isUser) MaterialTheme.colorScheme.primaryContainer
+                    color = if (isUser) MaterialTheme.colorScheme.primary
                     else MaterialTheme.colorScheme.surfaceVariant,
                     shape = MaterialTheme.shapes.large,
-                    modifier = Modifier.widthIn(max = 300.dp),
+                    modifier = Modifier.widthIn(max = 320.dp),
                 ) {
                     Column(Modifier.padding(12.dp)) {
                         if (!isUser && !message.reasoning.isNullOrBlank()) {
-                            // 推理内容（折叠展示首段）
                             Text(
                                 "🤔 " + message.reasoning.trim().lineSequence().first().take(80),
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                color = if (isUser) MaterialTheme.colorScheme.onPrimary
+                                else MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                             HorizontalDivider(Modifier.padding(vertical = 4.dp))
                         }
                         Text(
-                            message.content,
+                            message.content.ifBlank { "…" },
                             style = MaterialTheme.typography.bodyMedium,
+                            color = if (isUser) MaterialTheme.colorScheme.onPrimary
+                            else MaterialTheme.colorScheme.onSurface,
+                            // 超长消息（如 serve 注入的 reasoning-language 指令）限高，避免撑屏
+                            maxLines = 15,
+                            overflow = TextOverflow.Ellipsis,
                         )
                         if (message.toolCalls.isNotEmpty()) {
                             message.toolCalls.forEach { tool ->
                                 HorizontalDivider(Modifier.padding(vertical = 4.dp))
                                 Text(
-                                    "🔧 ${tool.name}(${tool.arguments.take(60)})",
+                                    "🔧 ${tool.name}",
                                     style = MaterialTheme.typography.labelSmall,
-                                    fontFamily = FontFamily.Monospace,
                                     color = MaterialTheme.colorScheme.tertiary,
                                 )
                             }
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+/** 流式中的 assistant 消息（推理折叠 + 文本 + 工具卡片） */
+@Composable
+private fun StreamingItem(streaming: StreamingMessage) {
+    var reasoningExpanded by remember { mutableStateOf(false) }
+    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        if (streaming.reasoning.isNotEmpty()) {
+            Surface(
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                shape = MaterialTheme.shapes.medium,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(Modifier.padding(10.dp)) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text(
+                            "💡 推理过程",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                        TextButton(onClick = { reasoningExpanded = !reasoningExpanded }) {
+                            Text(if (reasoningExpanded) "收起" else "展开")
+                        }
+                    }
+                    if (reasoningExpanded) {
+                        Text(
+                            streaming.reasoning,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+        }
+        streaming.tools.forEach { tool ->
+            ToolCard(
+                id = tool.id,
+                name = tool.name,
+                args = tool.args,
+                output = tool.output,
+                error = tool.error,
+                durationMs = tool.durationMs,
+                status = tool.status,
+            )
+        }
+        if (streaming.text.isNotEmpty()) {
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                shape = MaterialTheme.shapes.large,
+                modifier = Modifier.widthIn(max = 340.dp),
+            ) {
+                Text(
+                    streaming.text,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(12.dp),
+                )
+            }
+        }
+    }
+}
+
+/** 工具卡片（状态色：运行=琥珀 spinner / 完成=绿 / 错误=红） */
+@Composable
+private fun ToolCard(
+    id: String,
+    name: String,
+    args: String,
+    output: String,
+    error: String,
+    durationMs: Long,
+    status: ToolCallStatus,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val statusColor = when {
+        error.isNotEmpty() -> ReasonixColors.err
+        status == ToolCallStatus.RUNNING -> ReasonixColors.warn
+        else -> ReasonixColors.success
+    }
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        shape = MaterialTheme.shapes.medium,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(10.dp)) {
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (status == ToolCallStatus.RUNNING) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.padding(end = 6.dp),
+                        strokeWidth = 2.dp,
+                        color = statusColor,
+                    )
+                } else {
+                    Text("✓", color = statusColor, modifier = Modifier.padding(end = 6.dp))
+                }
+                Text(
+                    name,
+                    style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.weight(1f),
+                )
+                if (durationMs > 0) {
+                    Text(
+                        "${durationMs / 1000.0}s",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                TextButton(onClick = { expanded = !expanded }) {
+                    Text(if (expanded) "收起" else "详情")
+                }
+            }
+            if (expanded) {
+                Text(
+                    args,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 4,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (output.isNotEmpty()) {
+                    HorizontalDivider(Modifier.padding(vertical = 6.dp))
+                    Text(
+                        output.take(500),
+                        style = MaterialTheme.typography.bodySmall,
+                        fontFamily = FontFamily.Monospace,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 8,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                if (error.isNotEmpty()) {
+                    HorizontalDivider(Modifier.padding(vertical = 6.dp))
+                    Text(
+                        "✗ $error",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = ReasonixColors.err,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** 敏感工具集合（serve RequiresFreshHumanApprovalTool：YOLO 模式也强制显式审批） */
+private val SENSITIVE_TOOLS = setOf(
+    "memory_remember", "memory_forget", "plan", "sandbox_escape", "managed_config_write",
+)
+
+/** 审批卡片（紧凑版；Ask 与 YOLO 敏感工具都会触发） */
+@Composable
+private fun ApprovalCard(approval: ApprovalEventDto, viewModel: SessionDetailViewModel) {
+    val sensitive = approval.tool in SENSITIVE_TOOLS
+    Surface(
+        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f),
+        shape = MaterialTheme.shapes.small,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+    ) {
+        Column(Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    if (sensitive) "⚠️" else "🛡",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(end = 6.dp),
+                )
+                Text(
+                    buildString {
+                        append(approval.tool)
+                        if (approval.subject.isNotEmpty()) append(" — ${approval.subject}")
+                    },
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (sensitive) ReasonixColors.err else MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            if (sensitive) {
+                Text(
+                    "敏感操作（记忆/计划/沙箱），即使 YOLO 模式也需显式审批",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = ReasonixColors.err,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
+            Row(
+                Modifier.fillMaxWidth().padding(top = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                CompactApprovalButton("✕ 拒绝", ReasonixColors.err) {
+                    viewModel.approve(approval, allow = false)
+                }
+                CompactApprovalButton("★ 总是") {
+                    viewModel.approve(approval, allow = true, persist = true)
+                }
+                CompactApprovalButton("✓ 允许", MaterialTheme.colorScheme.primary) {
+                    viewModel.approve(approval, allow = true)
+                }
+            }
+        }
+    }
+}
+
+/** 紧凑审批按钮（小圆角、小高度，行内右对齐） */
+@Composable
+private fun CompactApprovalButton(
+    label: String,
+    color: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    onClick: () -> Unit,
+) {
+    TextButton(
+        onClick = onClick,
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+        modifier = Modifier.padding(0.dp),
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            color = color,
+        )
+    }
+}
+
+/** 审批模式切换菜单（询问/自动/YOLO，对标 PC 端三档） */
+@Composable
+private fun ApprovalModeMenu(
+    current: String?,
+    onChange: (ApprovalMode) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val currentMode = ApprovalMode.entries.firstOrNull { it.wire == current } ?: ApprovalMode.ASK
+    Box {
+        TextButton(onClick = { expanded = true }) {
+            Text(
+                "⚡ ${currentMode.label}",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            ApprovalMode.entries.forEach { mode ->
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            buildString {
+                                append(mode.label)
+                                append(
+                                    when (mode) {
+                                        ApprovalMode.ASK -> " · 工具调用逐个征求允许"
+                                        ApprovalMode.AUTO -> " · 自动批准工具"
+                                        ApprovalMode.YOLO -> " · 全速放行不询问"
+                                    },
+                                )
+                            },
+                        )
+                    },
+                    onClick = {
+                        expanded = false
+                        onChange(mode)
+                    },
+                )
             }
         }
     }

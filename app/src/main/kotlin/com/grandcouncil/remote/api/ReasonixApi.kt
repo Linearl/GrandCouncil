@@ -80,6 +80,10 @@ interface ReasonixApi {
     @GET("status")
     suspend fun getStatus(): StatusDto
 
+    /** POST /tool-approval-mode — 切换工具审批模式：ask | auto | yolo（PC 端三档） */
+    @POST("tool-approval-mode")
+    suspend fun toolApprovalMode(@Body body: JsonObject): Unit
+
     /** GET /models — 模型列表（M3） */
     @GET("models")
     suspend fun models(): JsonObject
