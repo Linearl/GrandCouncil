@@ -17,10 +17,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
 
-/** 会话筛选（V3 会话页：设备筛选 + 状态筛选） */
+/** 会话筛选（状态筛选；设备筛选见 deviceFilter） */
 enum class SessionFilter(val label: String) {
     ALL("全部"),
-    MINE("本地聊天"),
     RUNNING("运行中"),
     PENDING("待审批"),
     FAILED("失败"),
@@ -65,11 +64,10 @@ data class SessionListUiState(
         get() = if (deviceFilter == null) aggregated
         else aggregated.filter { it.profile.id == deviceFilter }
 
-    /** 应用状态筛选后的会话（本地聊天 = 非其他设备持有） */
+    /** 应用状态筛选后的会话 */
     val filteredSessions: List<AggregatedSession>
         get() = when (filter) {
             SessionFilter.ALL -> filteredByDevice
-            SessionFilter.MINE -> filteredByDevice.filter { it.session.heldBy != HeldBy.OTHER }
             SessionFilter.RUNNING -> filteredByDevice.filter { it.session.isCurrent }
             SessionFilter.PENDING -> filteredByDevice.filter { it.session.heldBy == HeldBy.ME }
             SessionFilter.FAILED -> emptyList()

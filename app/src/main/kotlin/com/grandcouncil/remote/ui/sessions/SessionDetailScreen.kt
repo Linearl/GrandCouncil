@@ -65,7 +65,7 @@ import com.grandcouncil.remote.ui.theme.ReasonixColors
 fun SessionDetailScreen(
     profile: ConnectionProfile,
     session: RemoteSession,
-    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
     viewModel: SessionDetailViewModel = viewModel(
         factory = SessionDetailViewModelFactory(
             profile = profile,
@@ -79,11 +79,8 @@ fun SessionDetailScreen(
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
 
-    // 详情页消费返回键（返回会话列表而非退出 App）
-    androidx.activity.compose.BackHandler(onBack = onBack)
-
-    // 每次进入详情强制重新加载（VM 可能被 NavBackStackEntry 复用，避免旧快照/残留流式状态）
-    LaunchedEffect(Unit) { viewModel.load() }
+    // 每次进入（会话切换/组合重建）强制重新加载，避免旧快照/残留流式状态
+    LaunchedEffect(session.id) { viewModel.load() }
 
     // 新消息/流式变化时自动滚到底（首帧后执行，避免未布局时滚动异常）
     LaunchedEffect(state.messages.size, state.streaming?.text?.length, state.streaming?.tools?.size) {
@@ -93,15 +90,11 @@ fun SessionDetailScreen(
     }
 
     Scaffold(
+        modifier = modifier,
         topBar = {
             TopAppBar(
                 title = {
                     Text(session.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
                 },
                 actions = {
                     if (session.heldBy == HeldBy.OTHER) {

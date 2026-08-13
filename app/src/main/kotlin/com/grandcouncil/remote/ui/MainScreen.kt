@@ -1,121 +1,138 @@
 package com.grandcouncil.remote.ui
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.List
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material3.Card
+import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.stringResource
-import androidx.navigation.NavGraph.Companion.findStartDestination
-import androidx.navigation.compose.NavHost
-import androidx.navigation.compose.composable
-import androidx.navigation.compose.currentBackStackEntryAsState
-import androidx.navigation.compose.rememberNavController
-import com.grandcouncil.remote.R
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
 import com.grandcouncil.remote.ui.config.ConfigScreen
-import com.grandcouncil.remote.ui.sessions.SessionListScreen
+import com.grandcouncil.remote.ui.sessions.AggregatedSession
+import com.grandcouncil.remote.ui.sessions.SessionDetailScreen
+import com.grandcouncil.remote.ui.sessions.SessionDrawerContent
 import com.grandcouncil.remote.ui.wizard.WizardScreen
+import kotlinx.coroutines.launch
+
+/** 主区页面 */
+enum class MainSection { CHAT, CONFIG, WIZARD }
 
 /**
- * 主界面（V3 三栏布局）：会话 / 配置（连接+设置）/ 向导。
- * 会话：按设备筛选 + 日期排序 + 只显示本地聊天（筛选 chips）
- * 配置：连接管理（增删改/测试）+ 设置（主题/密度）
- * 向导：分步连接向导（选方式 → 地址 → 认证 → 宿主命令 → 测试保存）
+ * 主界面（rikkahub 式布局）：左上汉堡 → 抽屉会话栏（默认折叠）；
+ * 会话栏底部为「配置」「向导」入口；主区常驻聊天（选中会话后直接展示）。
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen() {
-    val navController = rememberNavController()
-    val backStackEntry by navController.currentBackStackEntryAsState()
-    val currentRoute = backStackEntry?.destination?.route
-    // 详情页全屏：进入会话详情时隐藏底部三栏（聊天页底部应让位给输入框）
-    var detailOpen by remember { mutableStateOf(false) }
+    val drawerState = rememberDrawerState(DrawerValue.Closed)
+    val scope = rememberCoroutineScope()
+    var section by remember { mutableStateOf(MainSection.CHAT) }
+    var selectedSession by remember { mutableStateOf<AggregatedSession?>(null) }
 
-    Scaffold(
-        bottomBar = {
-            if (!detailOpen) {
-                NavigationBar {
-                    NavigationBarItem(
-                        selected = currentRoute == NavRoutes.SESSIONS,
-                        onClick = {
-                            navController.navigate(NavRoutes.SESSIONS) {
-                                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
-                        },
-                        icon = { Icon(Icons.AutoMirrored.Filled.List, contentDescription = null) },
-                        label = { Text(stringResource(R.string.tab_sessions)) },
-                    )
-                    NavigationBarItem(
-                        selected = currentRoute == NavRoutes.CONFIG,
-                        onClick = {
-                            navController.navigate(NavRoutes.CONFIG) {
-                                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
-                        },
-                        icon = { Icon(Icons.Filled.Settings, contentDescription = null) },
-                        label = { Text(stringResource(R.string.tab_connections)) },
-                    )
-                    NavigationBarItem(
-                        selected = currentRoute == NavRoutes.WIZARD,
-                        onClick = {
-                            navController.navigate(NavRoutes.WIZARD) {
-                                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
-                        },
-                        icon = { Icon(Icons.Filled.Info, contentDescription = null) },
-                        label = { Text(stringResource(R.string.tab_wizard)) },
-                    )
-                }
-            }
-        },
-    ) { innerPadding ->
-        NavHost(
-            navController = navController,
-            startDestination = NavRoutes.SESSIONS,
-            modifier = Modifier.padding(innerPadding),
-        ) {
-            composable(NavRoutes.SESSIONS) {
-                SessionListScreen(
-                    onNavigateToConfig = {
-                        navController.navigate(NavRoutes.CONFIG) {
-                            popUpTo(NavRoutes.SESSIONS) { inclusive = false }
-                            launchSingleTop = true
-                        }
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            ModalDrawerSheet {
+                SessionDrawerContent(
+                    onSelectSession = {
+                        selectedSession = it
+                        section = MainSection.CHAT
+                        scope.launch { drawerState.close() }
                     },
-                    onNavigateToWizard = {
-                        navController.navigate(NavRoutes.WIZARD) {
-                            popUpTo(NavRoutes.SESSIONS) { inclusive = false }
-                            launchSingleTop = true
-                        }
+                    onOpenConfig = {
+                        section = MainSection.CONFIG
+                        scope.launch { drawerState.close() }
                     },
-                    onDetailOpen = { detailOpen = true },
-                    onDetailClose = { detailOpen = false },
+                    onOpenWizard = {
+                        section = MainSection.WIZARD
+                        scope.launch { drawerState.close() }
+                    },
                 )
             }
-            composable(NavRoutes.CONFIG) { ConfigScreen() }
-            composable(NavRoutes.WIZARD) { WizardScreen() }
+        },
+    ) {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    navigationIcon = {
+                        IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                            Icon(Icons.Filled.Menu, contentDescription = "菜单")
+                        }
+                    },
+                    title = {
+                        Text(
+                            when (section) {
+                                MainSection.CHAT -> selectedSession?.session?.title ?: "会话"
+                                MainSection.CONFIG -> "配置"
+                                MainSection.WIZARD -> "向导"
+                            },
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    },
+                )
+            },
+        ) { padding ->
+            when (section) {
+                MainSection.CHAT -> {
+                    val selected = selectedSession
+                    if (selected != null) {
+                        SessionDetailScreen(
+                            profile = selected.profile,
+                            session = selected.session,
+                            modifier = Modifier.padding(padding),
+                        )
+                    } else {
+                        ChatEmptyHint(Modifier.padding(padding))
+                    }
+                }
+
+                MainSection.CONFIG -> ConfigScreen()
+                MainSection.WIZARD -> WizardScreen()
+            }
         }
     }
 }
 
-object NavRoutes {
-    const val SESSIONS = "sessions"
-    const val CONFIG = "config"
-    const val WIZARD = "wizard"
+/** 未选会话时的主区提示 */
+@Composable
+private fun ChatEmptyHint(modifier: Modifier = Modifier) {
+    Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text("⚔", style = MaterialTheme.typography.displayMedium)
+            Text(
+                "从左侧会话栏选择一个会话开始",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+            Text(
+                "首次使用：打开会话栏 → 底部「向导」添加连接",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        }
+    }
 }
