@@ -1,6 +1,9 @@
 # GrandCouncil — 临时目录（不提交）
 temp/
 
+# Reasonix 会话目录
+.reasonix/
+
 # Android / Gradle
 .gradle/
 build/

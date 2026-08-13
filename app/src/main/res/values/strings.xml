@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">GrandCouncil</string>
+
+    <!-- 底部导航 -->
+    <string name="tab_sessions">会话</string>
+    <string name="tab_connections">连接</string>
+
+    <!-- 会话列表 -->
+    <string name="sessions_empty">暂无会话</string>
+    <string name="sessions_no_connection">请先在「连接」页添加并测试远端连接</string>
+    <string name="sessions_refresh">刷新</string>
+    <string name="sessions_retry">重试</string>
+    <string name="sessions_loading">加载中…</string>
+    <string name="sessions_held_other">被其他进程占用（只读）</string>
+    <string name="sessions_held_me">本 serve 持有</string>
+
+    <!-- 连接管理 -->
+    <string name="connections_title">远端连接</string>
+    <string name="connections_add">添加连接</string>
+    <string name="connections_empty">还没有连接配置</string>
+    <string name="connections_test">测试连接</string>
+    <string name="connections_testing">测试中…</string>
+    <string name="connections_delete">删除</string>
+    <string name="connections_use">使用</string>
+    <string name="connections_save">保存</string>
+    <string name="connections_cancel">取消</string>
+
+    <!-- 连接编辑表单 -->
+    <string name="field_name">名称</string>
+    <string name="field_agent_type">Agent 类型</string>
+    <string name="field_connection_type">连接方式</string>
+    <string name="field_base_url">Base URL（http://host:port）</string>
+    <string name="field_auth_mode">认证方式</string>
+    <string name="field_token">Token</string>
+    <string name="field_password">密码</string>
+    <string name="field_timeout">超时（毫秒）</string>
+</resources>
