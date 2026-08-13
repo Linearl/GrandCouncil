@@ -81,6 +81,8 @@ cmd_start() {
         return 0
     fi
     echo "[$target] 启动 serve → http://0.0.0.0:$port （项目: $root）"
+    # 注意：在 agent 自动化环境中调用本脚本需保持进程组（preserve_background_processes），
+    # 否则 serve 随调用 shell 退出被清理；用户终端直接运行无此问题。
     (
         cd "$root" || exit 1
         DEEPSEEK_API_KEY="$KEY" "$REASONIX_CLI" serve --addr "0.0.0.0:$port" > "$LOG_DIR/$target.log" 2>&1 &
@@ -90,6 +92,7 @@ cmd_start() {
         echo "[$target] ✓ 启动成功，手机连接 http://<电脑IP>:$port"
     else
         echo "[$target] ✗ 启动失败，日志: $LOG_DIR/$target.log"
+        tail -5 "$LOG_DIR/$target.log" 2>/dev/null || true
         exit 1
     fi
 }

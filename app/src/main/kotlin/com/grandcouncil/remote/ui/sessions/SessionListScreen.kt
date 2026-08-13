@@ -22,7 +22,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -46,7 +45,6 @@ import com.grandcouncil.remote.R
 import com.grandcouncil.remote.connection.ConnectionProfile
 import com.grandcouncil.remote.connection.ConnectionStore
 import com.grandcouncil.remote.model.HeldBy
-import com.grandcouncil.remote.model.RemoteSession
 import com.grandcouncil.remote.repository.SessionRepository
 import com.grandcouncil.remote.ui.AppPreferences
 import com.grandcouncil.remote.ui.theme.DensityPreset
@@ -54,9 +52,9 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
 /**
- * 会话页（V3）：连接选择 + 服务器状态行 + 筛选 chips（全部/本地聊天/运行中/待审批/失败）
- * + 日期分组（今天/昨天/更早，解析自会话名时间戳）+ 卡片密度（清爽默认/紧凑）。
- * 会话可点击进入只读详情；无连接时显示首启三入口。
+ * 会话页（聚合视图）：全部连接（设备/项目）会话合并展示。
+ * 设备筛选（全部 + 各连接）+ 状态筛选 chips + 日期分组 + 卡片密度。
+ * 会话点击进入详情（携带所属连接）。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -70,26 +68,25 @@ fun SessionListScreen(
     ),
 ) {
     val state by viewModel.uiState.collectAsState()
-    var profileMenuOpen by remember { mutableStateOf(false) }
-    var selectedSession by remember { mutableStateOf<RemoteSession?>(null) }
+    var deviceMenuOpen by remember { mutableStateOf(false) }
+    var selected by remember { mutableStateOf<AggregatedSession?>(null) }
 
     // 详情页：覆盖整个会话页（全屏，隐藏底部三栏）
-    val active = state.activeProfile
-    val selected = selectedSession
-    if (active != null && selected != null) {
-        LaunchedEffect(selected) { onDetailOpen() }
+    val selectedItem = selected
+    if (selectedItem != null) {
+        LaunchedEffect(selectedItem) { onDetailOpen() }
         SessionDetailScreen(
-            profile = active,
-            session = selected,
+            profile = selectedItem.profile,
+            session = selectedItem.session,
             onBack = {
-                selectedSession = null
+                selected = null
                 onDetailClose()
             },
         )
         return
     }
 
-    // 每次进入会话页自动刷新（连接已选定时）
+    // 每次进入会话页自动刷新
     LaunchedEffect(Unit) { viewModel.refresh() }
 
     Scaffold(
@@ -98,24 +95,21 @@ fun SessionListScreen(
                 title = {
                     Column {
                         Text("会话")
-                        if (state.activeProfile != null) {
-                            Text(
-                                state.activeProfile!!.name,
-                                style = MaterialTheme.typography.bodySmall,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
+                        val online = state.onlineCount
+                        Text(
+                            if (online > 0) "$online 台设备在线" else "暂无在线设备",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (online > 0) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                 },
                 actions = {
-                    if (state.activeProfile != null) {
-                        IconButton(onClick = { viewModel.refresh() }) {
-                            Icon(
-                                Icons.Filled.Refresh,
-                                contentDescription = stringResource(R.string.sessions_refresh),
-                            )
-                        }
+                    IconButton(onClick = { viewModel.refresh() }) {
+                        Icon(
+                            Icons.Filled.Refresh,
+                            contentDescription = stringResource(R.string.sessions_refresh),
+                        )
                     }
                 },
             )
@@ -129,37 +123,27 @@ fun SessionListScreen(
             )
 
             else -> Column(Modifier.fillMaxSize().padding(padding)) {
-                ProfileSelector(
+                DeviceSelector(
                     profiles = state.profiles,
-                    active = state.activeProfile,
-                    expanded = profileMenuOpen,
-                    onToggle = { profileMenuOpen = !profileMenuOpen },
+                    selectedId = state.deviceFilter,
+                    onlineIds = state.serveInfoByProfile.keys,
+                    expanded = deviceMenuOpen,
+                    onToggle = { deviceMenuOpen = !deviceMenuOpen },
                     onSelect = {
-                        profileMenuOpen = false
-                        viewModel.selectProfile(it)
+                        deviceMenuOpen = false
+                        viewModel.setDeviceFilter(it)
                     },
                 )
-                // 服务器状态（合并进连接选择栏下方的细行，不占主窗口）
-                state.serveInfo?.let { info ->
-                    Text(
-                        "服务器：${info.label} · ${if (info.running) "运行中" else "空闲"}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(horizontal = 16.dp),
-                    )
-                }
-                // 筛选 chips（按设备/本地聊天/状态）
+                // 状态筛选 chips
                 FilterRow(
                     current = state.filter,
                     onSelect = { viewModel.setFilter(it) },
                 )
-                if (state.loading) {
+                if (state.loading && state.filteredSessions.isEmpty()) {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator()
                     }
-                } else if (state.error != null) {
+                } else if (state.error != null && state.filteredSessions.isEmpty()) {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(state.error!!, color = MaterialTheme.colorScheme.error)
@@ -173,7 +157,7 @@ fun SessionListScreen(
                     if (filtered.isEmpty()) {
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             Text(
-                                if (state.sessions.isEmpty()) stringResource(R.string.sessions_empty)
+                                if (state.aggregated.isEmpty()) stringResource(R.string.sessions_empty)
                                 else "该筛选条件下没有会话",
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -182,7 +166,8 @@ fun SessionListScreen(
                         SessionGroupedList(
                             sessions = filtered,
                             density = state.density,
-                            onOpen = { selectedSession = it },
+                            multiDevice = state.profiles.size > 1,
+                            onOpen = { selected = it },
                         )
                     }
                 }
@@ -191,7 +176,62 @@ fun SessionListScreen(
     }
 }
 
-/** 首启空态三入口（V3）：添加连接 / 使用指南 / Try a Demo */
+/** 设备筛选选择器（全部设备 + 各连接；在线状态点） */
+@Composable
+private fun DeviceSelector(
+    profiles: List<ConnectionProfile>,
+    selectedId: String?,
+    onlineIds: Set<String>,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    onSelect: (String?) -> Unit,
+) {
+    Box(Modifier.fillMaxWidth()) {
+        Card(
+            onClick = onToggle,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+        ) {
+            Row(
+                Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                val online = if (selectedId == null) onlineIds.size else if (selectedId in onlineIds) 1 else 0
+                Text("●", color = if (online > 0) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    when {
+                        selectedId == null -> "全部设备（${profiles.size}）"
+                        else -> profiles.firstOrNull { it.id == selectedId }?.name ?: "选择设备"
+                    },
+                    style = MaterialTheme.typography.titleSmall,
+                    modifier = Modifier.padding(horizontal = 8.dp),
+                )
+                Text("▾", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = onToggle) {
+            DropdownMenuItem(
+                text = { Text("全部设备（${profiles.size}）") },
+                onClick = { onSelect(null) },
+            )
+            profiles.forEach { profile ->
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            buildString {
+                                append(profile.name)
+                                if (profile.id in onlineIds) append("  ●在线")
+                            },
+                        )
+                    },
+                    onClick = { onSelect(profile.id) },
+                )
+            }
+        }
+    }
+}
+
+/** 首启空态三入口（V3） */
 @Composable
 private fun WelcomeEmptyState(
     modifier: Modifier,
@@ -217,25 +257,34 @@ private fun WelcomeEmptyState(
             modifier = Modifier.padding(vertical = 10.dp),
         )
         Card(onClick = onAddConnection, modifier = Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 4.dp)) {
-            ListItem(
-                leadingContent = { Text("🔌", style = MaterialTheme.typography.titleMedium) },
-                headlineContent = { Text("添加连接") },
-                supportingContent = { Text("连接你电脑上的 Reasonix") },
-            )
+            Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("🔌", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(end = 10.dp))
+                Column {
+                    Text("添加连接", style = MaterialTheme.typography.titleSmall)
+                    Text("连接你电脑上的 Reasonix", style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
         }
         Card(onClick = { /* TODO(M2): Demo 模式 */ }, modifier = Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 4.dp)) {
-            ListItem(
-                leadingContent = { Text("🎬", style = MaterialTheme.typography.titleMedium) },
-                headlineContent = { Text("Try a Demo") },
-                supportingContent = { Text("30 秒体验完整流程，无需服务器（M2 开放）") },
-            )
+            Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("🎬", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(end = 10.dp))
+                Column {
+                    Text("Try a Demo", style = MaterialTheme.typography.titleSmall)
+                    Text("30 秒体验完整流程，无需服务器（M2 开放）", style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
         }
         Card(onClick = onGuide, modifier = Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 4.dp)) {
-            ListItem(
-                leadingContent = { Text("📖", style = MaterialTheme.typography.titleMedium) },
-                headlineContent = { Text("使用指南") },
-                supportingContent = { Text("穿透方式选择与配置说明") },
-            )
+            Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("📖", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(end = 10.dp))
+                Column {
+                    Text("使用指南", style = MaterialTheme.typography.titleSmall)
+                    Text("穿透方式选择与配置说明", style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
         }
     }
 }
@@ -256,12 +305,13 @@ private fun FilterRow(current: SessionFilter, onSelect: (SessionFilter) -> Unit)
     }
 }
 
-/** 会话列表（日期分组：今天/昨天/更早，解析自会话名 YYYYMMDD 前缀） */
+/** 会话列表（日期分组；多设备时显示设备标签） */
 @Composable
 private fun SessionGroupedList(
-    sessions: List<RemoteSession>,
+    sessions: List<AggregatedSession>,
     density: DensityPreset,
-    onOpen: (RemoteSession) -> Unit,
+    multiDevice: Boolean,
+    onOpen: (AggregatedSession) -> Unit,
 ) {
     val grouped = remember(sessions) { groupByDay(sessions) }
     val vPad = if (density == DensityPreset.COMPACT) 2.dp else 6.dp
@@ -276,80 +326,49 @@ private fun SessionGroupedList(
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
             }
-            items(list, key = { it.id }) { session ->
-                SessionItem(session, density, Modifier.padding(vertical = vPad), onClick = { onOpen(session) })
+            items(list, key = { "${it.profile.id}-${it.session.id}" }) { item ->
+                SessionItem(
+                    item = item,
+                    density = density,
+                    showDevice = multiDevice,
+                    modifier = Modifier.padding(vertical = vPad),
+                    onClick = { onOpen(item) },
+                )
             }
         }
     }
 }
 
 /** 按日期分组（今天/昨天/更早）——会话名格式：YYYYMMDD-HHMMSS.xxx-model */
-private fun groupByDay(sessions: List<RemoteSession>): List<Pair<String, List<RemoteSession>>> {
+private fun groupByDay(sessions: List<AggregatedSession>): List<Pair<String, List<AggregatedSession>>> {
     val today = LocalDate.now()
-    val grouped = linkedMapOf<String, MutableList<RemoteSession>>()
-    sessions.forEach { session ->
-        val day = parseSessionDate(session.id)
+    val grouped = linkedMapOf<String, MutableList<AggregatedSession>>()
+    sessions.forEach { item ->
+        val day = parseSessionDate(item.session.id)
         val label = when (day) {
             null -> "更早"
             today -> "今天"
             today.minusDays(1) -> "昨天"
             else -> "更早"
         }
-        grouped.getOrPut(label) { mutableListOf() }.add(session)
+        grouped.getOrPut(label) { mutableListOf() }.add(item)
     }
     return grouped.toList()
 }
 
 private fun parseSessionDate(sessionId: String): LocalDate? = runCatching {
-    val prefix = sessionId.take(8)
-    LocalDate.parse(prefix, DateTimeFormatter.BASIC_ISO_DATE)
+    LocalDate.parse(sessionId.take(8), DateTimeFormatter.BASIC_ISO_DATE)
 }.getOrNull()
-
-/** 连接选择栏（紧凑单行：状态点 + 连接名 + 服务器状态；主窗口不浪费给连接详情） */
-@Composable
-private fun ProfileSelector(
-    profiles: List<ConnectionProfile>,
-    active: ConnectionProfile?,
-    expanded: Boolean,
-    onToggle: () -> Unit,
-    onSelect: (ConnectionProfile) -> Unit,
-) {
-    Box(Modifier.fillMaxWidth()) {
-        Card(
-            onClick = onToggle,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
-        ) {
-            Row(
-                Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text("●", color = MaterialTheme.colorScheme.primary)
-                Text(
-                    active?.name ?: "选择连接",
-                    style = MaterialTheme.typography.titleSmall,
-                    modifier = Modifier.padding(horizontal = 8.dp),
-                )
-                Text("▾", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
-        DropdownMenu(expanded = expanded, onDismissRequest = onToggle) {
-            profiles.forEach { profile ->
-                DropdownMenuItem(
-                    text = { Text(profile.name) },
-                    onClick = { onSelect(profile) },
-                )
-            }
-        }
-    }
-}
 
 @Composable
 private fun SessionItem(
-    session: RemoteSession,
+    item: AggregatedSession,
     density: DensityPreset,
+    showDevice: Boolean,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
+    val session = item.session
     val hPad = if (density == DensityPreset.COMPACT) 12.dp else 16.dp
     Card(
         onClick = onClick,
@@ -370,6 +389,7 @@ private fun SessionItem(
                 )
                 Text(
                     buildString {
+                        if (showDevice) append("${item.profile.name} · ")
                         append("${session.turns} 轮")
                         if (session.isCurrent) append(" · 当前")
                         if (session.agent == com.grandcouncil.remote.model.AgentType.REASONIX) append(" · Reasonix")
