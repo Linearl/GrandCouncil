@@ -1,0 +1,26 @@
+# GrandCouncil — 临时目录（不提交）
+temp/
+
+# Android / Gradle
+.gradle/
+build/
+local.properties
+*.apk
+*.aab
+captures/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.DS_Store
+
+# 密钥/凭据
+*.env
+.env
+keystore/
+*.jks
+*.keystore
+
+# 日志
+*.log
