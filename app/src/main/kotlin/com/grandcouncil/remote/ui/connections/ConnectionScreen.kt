@@ -12,7 +12,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.NetworkCheck
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -124,7 +124,7 @@ private fun ProfileItem(
                         CircularProgressIndicator(Modifier.padding(4.dp))
                     } else {
                         Icon(
-                            Icons.Filled.NetworkCheck,
+                            Icons.Filled.CheckCircle,
                             contentDescription = stringResource(R.string.connections_test),
                         )
                     }
