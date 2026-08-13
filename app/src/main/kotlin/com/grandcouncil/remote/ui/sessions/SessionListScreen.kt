@@ -48,7 +48,7 @@ import com.grandcouncil.remote.repository.SessionRepository
 /**
  * 会话列表页（M1 验收：经 ReasonixAdapter 显示 GET /sessions 结果）。
  * 顶部为远端连接选择器；列表展示 title/turns/current/heldBy。
- * 会话所有权语义（计划书 2.2.1）：heldBy=OTHER 的会话只读，不可写。
+ * 会话所有权语义：heldBy=OTHER 的会话只读，不可写。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

@@ -16,7 +16,7 @@ import java.util.concurrent.TimeUnit
  * - token 模式：`?token=xxx` 查询参数（拦截器统一注入）
  * - password 模式：POST /login 换 session cookie（M2 细化，见 SseClient/ReasonixApi 注释）
  *
- * CSRF（计划书 2.3）：state-changing 请求必须带 application/json Content-Type，
+ * CSRF：state-changing 请求必须带 application/json Content-Type，
  * 由 asConverterFactory + Retrofit @Body 保证。
  */
 object HttpClientFactory {

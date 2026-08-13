@@ -5,7 +5,7 @@ import com.grandcouncil.remote.connection.ConnectionProfile
 import com.grandcouncil.remote.model.RemoteSession
 
 /**
- * 会话仓库（计划书 3.2）：会话列表/切换/删除，经 AgentAdapter——
+ * 会话仓库：会话列表/切换/删除，经 AgentAdapter——
  * 仓库与 UI 不感知具体 agent 协议，协议差异在 adapter 内隔离。
  */
 class SessionRepository {

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  计划书 3.6：局域网内可明文（信任网络）；公网必须加密（Tailscale/HTTPS 隧道）。
+  局域网内可明文（信任网络）；公网必须加密（Tailscale/HTTPS 隧道）。
   Android 9+ 默认禁明文 HTTP，局域网直连 serve（http://192.168.x.x:8787、
   http://100.x.x.x:8787、http://10.0.2.2:8787 模拟器）必须在此放行。
   安全基线（M2 验收）不因此放宽：公网连接仍应使用 HTTPS 前缀。

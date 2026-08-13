@@ -14,7 +14,7 @@ private val Context.connectionDataStore by preferencesDataStore(name = "connecti
 /**
  * 连接配置持久化（DataStore Preferences，JSON 序列化）。
  *
- * TODO(M2 安全基线)：token/password 目前随 JSON 明文落盘（计划书 3.5.6 第 3 条：
+ * TODO(M2 安全基线)：token/password 目前随 JSON 明文落盘（第 3 条：
  * token 存 Android Keystore/EncryptedSharedPreferences，不落日志）。
  * M1 先以 DataStore 打通链路，M2 迁移加密存储。
  */

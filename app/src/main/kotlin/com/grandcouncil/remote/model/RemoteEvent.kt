@@ -2,7 +2,7 @@ package com.grandcouncil.remote.model
 
 /**
  * SSE 事件模型（agent 无关，M2 聊天流使用）。
- * Reasonix serve SSE 事件序列（HANDOFF 6.1 实测）：
+ * Reasonix serve SSE 事件序列（实测）：
  * reasoning → text → message → usage → turn_done
  */
 data class RemoteEvent(

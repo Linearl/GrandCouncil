@@ -2,7 +2,7 @@ package com.grandcouncil.remote.model
 
 /**
  * 消息模型（含 tool use/审批状态）。M2 聊天功能使用，M1 先定结构。
- * 计划书 3.2：RemoteMessage — 消息模型（含 tool use/审批状态）
+ * RemoteMessage — 消息模型（含 tool use/审批状态）
  */
 data class RemoteMessage(
     val id: String,

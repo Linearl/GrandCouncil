@@ -4,7 +4,7 @@ import com.grandcouncil.remote.model.AgentType
 import kotlinx.serialization.Serializable
 
 /**
- * 连接配置（计划书 3.5.2）：对 App 透明——无论哪种穿透方式，
+ * 连接配置：对 App 透明——无论哪种穿透方式，
  * App 只按 Base URL 发起 HTTP/SSE，穿透差异全在 URL 层面。
  */
 @Serializable
@@ -18,7 +18,7 @@ data class ConnectionProfile(
     val baseUrl: String,
     val authMode: AuthMode = AuthMode.NONE,
     // TODO(M2 安全基线)：token/password 迁移到 Android Keystore/EncryptedSharedPreferences，
-    //  禁止明文落盘（计划书 3.5.6 第 3 条）
+    //  禁止明文落盘（第 3 条）
     val token: String = "",
     val password: String = "",
     val timeoutMs: Long = 10_000L,
@@ -41,7 +41,7 @@ data class ConnectionProfile(
     }
 }
 
-/** serve 认证模式（计划书 2.2：auth_mode = none | token | password） */
+/** serve 认证模式（auth_mode = none | token | password） */
 @Serializable
 enum class AuthMode(val label: String) {
     NONE("无认证"),

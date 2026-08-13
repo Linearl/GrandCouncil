@@ -23,7 +23,7 @@ import com.grandcouncil.remote.ui.connections.ConnectionScreen
 import com.grandcouncil.remote.ui.sessions.SessionListScreen
 
 /**
- * 主界面（计划书 3.1）：Remote Tab（唯一 v1 视图）——
+ * 主界面：Remote Tab（唯一 v1 视图）——
  * 会话列表 + 连接管理两个底部导航页。
  */
 @Composable

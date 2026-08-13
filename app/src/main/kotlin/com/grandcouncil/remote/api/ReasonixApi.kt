@@ -11,7 +11,7 @@ import retrofit2.http.Query
 /**
  * Reasonix serve REST 接口（附录 A：26 端点）。
  * M1 实现会话列表 + 状态握手；其余端点按 M2/M3 里程碑逐步启用，
- * 接口先声明以保证协议差异在 api 层内隔离（计划书 3.2）。
+ * 接口先声明以保证协议差异在 api 层内隔离。
  *
  * 认证：token 模式由 HttpClientFactory 拦截器注入 ?token=；
  * password 模式需先 POST /login 建立 session cookie（M2 细化）。
@@ -36,7 +36,7 @@ interface ReasonixApi {
 
     // ---- 对话 ----
 
-    /** POST /submit — 发送消息（M2，state-changing 必须 JSON Content-Type，计划书 2.3） */
+    /** POST /submit — 发送消息（M2，state-changing 必须 JSON Content-Type） */
     @POST("submit")
     suspend fun submit(@Body body: JsonObject): JsonObject
 

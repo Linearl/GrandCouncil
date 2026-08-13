@@ -3,7 +3,7 @@ package com.grandcouncil.remote.connection
 import kotlinx.serialization.Serializable
 
 /**
- * 穿透方式预设（计划书 3.5）：内置五种方式 + 自定义。
+ * 穿透方式预设：内置五种方式 + 自定义。
  * 对 App 透明——差异仅在 URL 与帮助文案；预设为「配置向导 + 诊断提示」服务。
  */
 @Serializable

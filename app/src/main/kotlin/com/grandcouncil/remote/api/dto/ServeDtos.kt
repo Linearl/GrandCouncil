@@ -5,7 +5,7 @@ import kotlinx.serialization.json.JsonObject
 
 /**
  * serve 协议 DTO（v1.21.3+ 源码确认：internal/serve/serve.go sessions/status handler）。
- * 统一 ignoreUnknownKeys：serve 协议随版本演进，客户端做 DTO 容错（计划书 6 风险对策）。
+ * 统一 ignoreUnknownKeys：serve 协议随版本演进，客户端做 DTO 容错（风险对策）。
  */
 
 /** GET /sessions 响应元素（serve.go:1477 sessionEntry） */

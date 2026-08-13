@@ -48,7 +48,7 @@ import com.grandcouncil.remote.connection.ConnectionTester
 
 /**
  * 连接管理页（M1 验收：增/删/改 + 三层诊断测试 + 向导入口）。
- * 新建连接向导（计划书 3.5.2）：选 agent → 选穿透方式 → 填配置 → 测试，
+ * 新建连接向导：选 agent → 选穿透方式 → 填配置 → 测试，
  * M1 以编辑对话框内嵌方式向导（步骤文案来自 ConnectionGuide）。
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -192,7 +192,7 @@ private fun ProfileEditorDialog(
         text = {
             Column {
                 OutlinedField(stringResource(R.string.field_name), name) { name = it }
-                // agent 类型（计划书 3.2：向导第一步选 agent）
+                // agent 类型（向导第一步选 agent）
                 DropdownField(
                     label = stringResource(R.string.field_agent_type),
                     value = agentType.label,
@@ -253,7 +253,7 @@ private fun ProfileEditorDialog(
                     OutlinedField(stringResource(R.string.field_password), password) { password = it }
                 }
                 OutlinedField(stringResource(R.string.field_timeout), timeout) { timeout = it }
-                // 穿透方式内置配置向导（计划书 3.5.4）
+                // 穿透方式内置配置向导
                 Text(
                     ConnectionGuide.stepsFor(connectionType).joinToString("\n") { "· $it" },
                     style = MaterialTheme.typography.bodySmall,

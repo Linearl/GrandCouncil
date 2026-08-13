@@ -9,12 +9,12 @@ import java.net.InetSocketAddress
 import java.net.Socket
 
 /**
- * 连接测试三层诊断（计划书 3.5.2）：
+ * 连接测试三层诊断：
  * 1. 网络可达（TCP 连通）
  * 2. 认证（HTTP 401/403 判断）
  * 3. 协议握手（GET /status 返回 JSON 确认是 serve）
  *
- * 失败提示不泄露 token 明文（计划书 3.5.6 第 4 条）。
+ * 失败提示不泄露 token 明文（第 4 条）。
  */
 class ConnectionTester {
 

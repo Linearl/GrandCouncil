@@ -17,9 +17,9 @@ import okhttp3.sse.EventSources
  * OkHttp SSE 事件流客户端（M2 聊天流使用，M1 骨架）。
  *
  * Reasonix serve SSE：GET /events（15s keepalive），事件序列
- * reasoning → text → message → usage → turn_done（HANDOFF 6.1 实测）。
+ * reasoning → text → message → usage → turn_done（实测）。
  *
- * TODO(M2)：断线自动重连 + 指数退避 + last-event-id 游标续传（计划书 6 风险对策）。
+ * TODO(M2)：断线自动重连 + 指数退避 + last-event-id 游标续传（风险对策）。
  */
 class SseClient(
     private val client: OkHttpClient,

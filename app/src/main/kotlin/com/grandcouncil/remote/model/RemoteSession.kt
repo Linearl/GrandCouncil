@@ -1,7 +1,7 @@
 package com.grandcouncil.remote.model
 
 /**
- * Agent 类型（计划书 3.2：多 agent 适配层）。
+ * Agent 类型（多 agent 适配层）。
  * v1 只实现 Reasonix；MiMo Code 为 v2 接入目标（opencode 系 serve 协议）。
  */
 enum class AgentType(val label: String) {
@@ -12,7 +12,7 @@ enum class AgentType(val label: String) {
 /**
  * 远端会话（agent 无关模型，UI/Repository 层只见此模型）。
  *
- * 会话所有权语义（计划书 2.2.1）：单 writer lease——
+ * 会话所有权语义：单 writer lease——
  * App 与桌面版不能同时写同一会话；heldBy=OTHER 时只能只读查看。
  */
 data class RemoteSession(

@@ -6,7 +6,7 @@ import com.grandcouncil.remote.model.RemoteSession
 import kotlinx.coroutines.flow.Flow
 
 /**
- * 多 agent 适配层抽象（计划书 3.2，核心差异化）：
+ * 多 agent 适配层抽象（核心差异化）：
  * 覆盖 Reasonix 与 MiMo Code serve 的共同协议子集
  * （session/message/event/permission/abort/fork/revert/summarize/todo）。
  * 协议差异在 adapter 内隔离，UI/Repository 层只见 agent 无关的 model。

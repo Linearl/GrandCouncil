@@ -1,12 +1,12 @@
 package com.grandcouncil.remote.connection
 
 /**
- * 各穿透方式内置配置向导（计划书 3.5.4 速查，面向新用户）。
- * 穿透服务本身由用户自行选择/搭建（计划书 1.3 非目标：App 不内嵌 frpc/Tailscale 客户端）。
+ * 各穿透方式内置配置向导（速查，面向新用户）。
+ * 穿透服务本身由用户自行选择/搭建（非目标：App 不内嵌 frpc/Tailscale 客户端）。
  */
 object ConnectionGuide {
 
-    /** 电脑端通用第一步（计划书 3.5.3） */
+    /** 电脑端通用第一步 */
     const val SERVE_START = "电脑端启动服务：reasonix serve --addr 0.0.0.0:8787 --auth password"
 
     fun stepsFor(type: ConnectionType): List<String> = when (type) {
@@ -40,7 +40,7 @@ object ConnectionGuide {
 
         ConnectionType.FRP -> listOf(
             SERVE_START,
-            "租 VPS 部署 frps，电脑运行 frpc 映射本机 8787（配置见计划书 3.5.5）",
+            "租 VPS 部署 frps，电脑运行 frpc 映射本机 8787（配置模板见 frp 官方文档）",
             "VPS 安全组放行 frps 端口与映射端口",
             "App 中填入 http://VPS-IP:映射端口（建议 frp 开 TLS + serve 开认证）",
         )
@@ -53,7 +53,7 @@ object ConnectionGuide {
         )
     }
 
-    /** 推荐组合（计划书 3.5.2） */
+    /** 推荐组合 */
     const val RECOMMENDATION =
         "推荐：局域网直连（开发期）→ 外出用节点小宝/花生壳/Tailscale → 自控用 frp（自建 VPS）"
 }
