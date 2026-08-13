@@ -168,6 +168,15 @@ private fun ProfileItem(
                     else MaterialTheme.colorScheme.error,
                 )
             }
+            // 连接失败提示：电脑端按需启动对应项目 serve（懒加载闭环）
+            if (results.any { !it.success }) {
+                Text(
+                    "💡 未启动？在电脑上运行：bash scripts/serve-manager.sh start ${profile.name}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 6.dp),
+                )
+            }
         }
     }
 
