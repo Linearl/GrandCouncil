@@ -1,5 +1,6 @@
 package com.grandcouncil.remote.api
 
+import com.grandcouncil.remote.api.dto.HistoryMessageDto
 import com.grandcouncil.remote.api.dto.SessionEntryDto
 import com.grandcouncil.remote.api.dto.StatusDto
 import kotlinx.serialization.json.JsonObject
@@ -44,9 +45,13 @@ interface ReasonixApi {
     @POST("cancel")
     suspend fun cancel(@Body body: JsonObject = JsonObject(emptyMap())): JsonObject
 
-    /** GET /history — 对话历史（M2 会话切换加载） */
+    /** GET /history — 当前绑定会话的对话历史（只读；切换会话用 /resume） */
     @GET("history")
-    suspend fun history(@Query("session") sessionId: String?): JsonObject
+    suspend fun history(): List<HistoryMessageDto>
+
+    /** POST /resume — 切换到指定会话（body: {"path": "<会话文件绝对路径>"}，来自 /sessions 的 path；返回 204） */
+    @POST("resume")
+    suspend fun resume(@Body body: JsonObject): Unit
 
     /** GET /context — 上下文（M3） */
     @GET("context")

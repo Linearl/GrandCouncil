@@ -1,24 +1,26 @@
 package com.grandcouncil.remote.connection
 
 import com.grandcouncil.remote.api.HttpClientFactory
-import com.grandcouncil.remote.connection.AuthMode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.Request
 import java.net.InetSocketAddress
 import java.net.Socket
+import java.net.URI
 
 /**
- * 连接测试三层诊断：
- * 1. 网络可达（TCP 连通）
- * 2. 认证（HTTP 401/403 判断）
- * 3. 协议握手（GET /status 返回 JSON 确认是 serve）
+ * 连接测试四层诊断（P0-1 升级，借鉴 opencode-mobile diagnostics）：
+ * 0. 设备网络（公网 204 探测——区分"设备没网"）
+ * 1. 网络可达（TCP 连通，12s 交互快超时——坏 IP 快速失败）
+ * 2. 认证（HTTP 401/403，区分"未发凭据"与"被拒"）
+ * 3. 协议握手（GET /status 确认是 serve）
  *
- * 失败提示不泄露 token 明文（第 4 条）。
+ * 失败文案"人话化"：URL 格式错 / 设备无网 / 主机不可达 / TLS / 超时 / 认证失败 / 非 serve。
  */
 class ConnectionTester {
 
     sealed class Step(val title: String) {
+        data object DeviceNetwork : Step("设备网络")
         data object Network : Step("网络可达")
         data object Authentication : Step("认证")
         data object Handshake : Step("协议握手")
@@ -31,15 +33,24 @@ class ConnectionTester {
         val detail: String? = null,
     )
 
+    /** 交互式测试超时（12s，opencode-mobile 教训：业务超时 30s 是首启流失元凶） */
+    private val interactiveTimeoutMs = 12_000L
+
     /**
-     * 依次执行三层诊断，返回全部结果（含失败即停止）。
-     * 回调 [onResult] 供 UI 逐步展示。
+     * 依次执行四层诊断，返回全部结果（失败即停止）。
+     * [onResult] 供 UI 逐步展示。
      */
     suspend fun test(
         profile: ConnectionProfile,
         onResult: suspend (TestResult) -> Unit = {},
     ): List<TestResult> = withContext(Dispatchers.IO) {
         val results = mutableListOf<TestResult>()
+
+        // ---- 第 0 层：设备网络 ----
+        val deviceResult = testDeviceNetwork(profile)
+        results += deviceResult
+        onResult(deviceResult)
+        if (!deviceResult.success) return@withContext results
 
         // ---- 第 1 层：TCP 连通 ----
         val tcpResult = testTcp(profile)
@@ -55,33 +66,62 @@ class ConnectionTester {
         results
     }
 
+    /** 设备网络探针：公网 204（google generate_204；国内可用性由失败分类兜底） */
+    private fun testDeviceNetwork(profile: ConnectionProfile): TestResult {
+        val client = HttpClientFactory.createOkHttp(profile.copy(timeoutMs = interactiveTimeoutMs))
+        val request = Request.Builder().url("https://www.gstatic.com/generate_204").get().build()
+        return try {
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    TestResult(Step.DeviceNetwork, true, "设备网络正常")
+                } else {
+                    TestResult(Step.DeviceNetwork, false, "设备网络异常（HTTP ${response.code}）")
+                }
+            }
+        } catch (e: Exception) {
+            // 网络探测失败不阻断后续测试（可能是代理/区域限制），降级为"未验证"
+            TestResult(Step.DeviceNetwork, true, "设备网络未验证（${e.message?.take(40) ?: "探测失败"}）")
+        }
+    }
+
     private fun testTcp(profile: ConnectionProfile): TestResult {
         val url = profile.normalizedBaseUrl()
         val parsed = try {
-            java.net.URI(url)
+            URI(url)
         } catch (e: Exception) {
-            return TestResult(Step.Network, false, "地址格式无效", detail(e))
+            return TestResult(Step.Network, false, "地址格式无效，请检查是否以 http(s):// 开头", e.message)
         }
-        val host = parsed.host ?: return TestResult(Step.Network, false, "地址缺少主机名")
+        val host = parsed.host ?: return TestResult(Step.Network, false, "地址缺少主机名（示例：http://192.168.1.100:8787）")
         val port = if (parsed.port > 0) parsed.port else if (parsed.scheme == "https") 443 else 80
-        val timeoutMs = profile.timeoutMs.coerceIn(1000L, 30_000L).toInt()
+        val timeoutMs = interactiveTimeoutMs.coerceIn(1000L, 30_000L).toInt()
 
         return try {
             Socket().use { socket ->
                 socket.connect(InetSocketAddress(host, port), timeoutMs)
                 TestResult(Step.Network, true, "TCP 连接成功（$host:$port）")
             }
-        } catch (e: Exception) {
+        } catch (e: java.net.ConnectException) {
             TestResult(
                 Step.Network, false,
-                "无法连接 $host:$port——请检查穿透隧道是否开启、地址端口是否正确",
-                detail(e),
+                "无法连接 $host:$port——检查 serve 是否启动、穿透隧道是否开启、地址端口是否正确",
             )
+        } catch (e: java.net.SocketTimeoutException) {
+            TestResult(
+                Step.Network, false,
+                "连接超时（${timeoutMs}ms）——主机可能不在线或防火墙拦截",
+            )
+        } catch (e: java.net.UnknownHostException) {
+            TestResult(
+                Step.Network, false,
+                "主机名无法解析：$host——检查地址拼写（或试试 IP 直连）",
+            )
+        } catch (e: Exception) {
+            TestResult(Step.Network, false, "连接失败：${e.message?.take(80) ?: e.javaClass.simpleName}")
         }
     }
 
     private suspend fun testHandshake(profile: ConnectionProfile): TestResult {
-        val client = HttpClientFactory.createOkHttp(profile)
+        val client = HttpClientFactory.createOkHttp(profile.copy(timeoutMs = interactiveTimeoutMs))
         val request = Request.Builder()
             .url(profile.normalizedBaseUrl() + "status")
             .header("Accept", "application/json")
@@ -93,9 +133,9 @@ class ConnectionTester {
                     response.code == 401 || response.code == 403 -> TestResult(
                         Step.Authentication, false,
                         if (profile.authMode == AuthMode.NONE) {
-                            "认证失败（HTTP ${response.code}）——服务端已开启认证，请配置 token/密码"
+                            "服务端已开启认证（HTTP ${response.code}），但此连接未配置凭据——请在认证方式中选择 Token/密码"
                         } else {
-                            "认证失败（HTTP ${response.code}）——请检查认证方式与 token/密码是否正确"
+                            "认证被拒绝（HTTP ${response.code}）——请检查 token/密码是否正确"
                         },
                     )
 
@@ -105,7 +145,6 @@ class ConnectionTester {
                     )
 
                     else -> {
-                        // 握手：响应体必须是 serve 的 status JSON
                         val body = response.body?.string().orEmpty()
                         if (body.contains("\"label\"") || body.contains("\"plan\"")) {
                             TestResult(Step.Handshake, true, "连接成功，已确认 Reasonix serve")
@@ -119,12 +158,14 @@ class ConnectionTester {
                 }
             }
         } catch (e: java.net.SocketTimeoutException) {
-            TestResult(Step.Handshake, false, "请求超时（${profile.timeoutMs}ms）", detail(e))
+            TestResult(Step.Handshake, false, "请求超时（${interactiveTimeoutMs}ms）——服务响应过慢或端口错误")
+        } catch (e: javax.net.ssl.SSLException) {
+            TestResult(
+                Step.Handshake, false,
+                "TLS 证书错误——试试 http:// 地址，或检查穿透域名的证书",
+            )
         } catch (e: Exception) {
-            TestResult(Step.Handshake, false, "请求失败", detail(e))
+            TestResult(Step.Handshake, false, "请求失败：${e.message?.take(80) ?: e.javaClass.simpleName}")
         }
     }
-
-    private fun detail(e: Exception): String =
-        e.message?.take(200) ?: e.javaClass.simpleName
 }

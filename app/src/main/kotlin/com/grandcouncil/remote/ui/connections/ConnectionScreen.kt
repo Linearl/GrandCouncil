@@ -47,33 +47,65 @@ import com.grandcouncil.remote.connection.ConnectionStore
 import com.grandcouncil.remote.connection.ConnectionTester
 
 /**
- * 连接管理页（M1 验收：增/删/改 + 三层诊断测试 + 向导入口）。
- * 新建连接向导：选 agent → 选穿透方式 → 填配置 → 测试，
- * M1 以编辑对话框内嵌方式向导（步骤文案来自 ConnectionGuide）。
+ * 连接管理（M1 验收：增/删/改 + 三层诊断测试）。
+ * embedded=true 时由外层（ConfigScreen）提供 Scaffold 顶栏，本组件只渲染内容。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ConnectionScreen(
+    embedded: Boolean = false,
+    padding: androidx.compose.foundation.layout.PaddingValues =
+        androidx.compose.foundation.layout.PaddingValues(),
     viewModel: ConnectionViewModel = viewModel(
         factory = ConnectionViewModelFactory(LocalContext.current.applicationContext),
     ),
 ) {
     val state by viewModel.uiState.collectAsState()
 
+    if (embedded) {
+        ConnectionContent(state, viewModel, padding)
+    } else {
+        Scaffold(
+            topBar = { TopAppBar(title = { Text(stringResource(R.string.connections_title)) }) },
+            floatingActionButton = {
+                FloatingActionButton(onClick = { viewModel.openEditor() }) {
+                    Icon(Icons.Filled.Add, contentDescription = stringResource(R.string.connections_add))
+                }
+            },
+        ) { p ->
+            ConnectionContent(state, viewModel, p)
+        }
+    }
+
+    state.editing?.let { profile ->
+        ProfileEditorDialog(
+            initial = if (state.isNewEditor) null else profile,
+            onDismiss = { viewModel.closeEditor() },
+            onSave = { viewModel.saveProfile(it) },
+        )
+    }
+}
+
+@Composable
+private fun ConnectionContent(
+    state: ConnectionUiState,
+    viewModel: ConnectionViewModel,
+    padding: androidx.compose.foundation.layout.PaddingValues,
+) {
     Scaffold(
-        topBar = { TopAppBar(title = { Text(stringResource(R.string.connections_title)) }) },
         floatingActionButton = {
             FloatingActionButton(onClick = { viewModel.openEditor() }) {
                 Icon(Icons.Filled.Add, contentDescription = stringResource(R.string.connections_add))
             }
         },
-    ) { padding ->
+    ) { p ->
+        val contentModifier = Modifier.padding(padding)
         if (state.profiles.isEmpty()) {
-            Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+            Box(contentModifier.fillMaxSize().padding(p), contentAlignment = Alignment.Center) {
                 Text(stringResource(R.string.connections_empty))
             }
         } else {
-            LazyColumn(Modifier.fillMaxSize().padding(padding)) {
+            LazyColumn(contentModifier.fillMaxSize().padding(p)) {
                 items(state.profiles, key = { it.id }) { profile ->
                     ProfileItem(
                         profile = profile,
@@ -86,14 +118,6 @@ fun ConnectionScreen(
                 }
             }
         }
-    }
-
-    state.editing?.let { profile ->
-        ProfileEditorDialog(
-            initial = if (state.isNewEditor) null else profile,
-            onDismiss = { viewModel.closeEditor() },
-            onSave = { viewModel.saveProfile(it) },
-        )
     }
 }
 

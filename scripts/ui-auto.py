@@ -69,16 +69,20 @@ def wait_for(text, timeout=20, y_min=0, y_max=10000):
 
 
 def main():
-    base_url = "http://10.0.2.2:8787"
+    # 用法: python scripts/ui-auto.py [baseUrl]，默认 10.0.2.2:8787
+    base_url = sys.argv[1] if len(sys.argv) > 1 else "http://10.0.2.2:8787"
 
-    # 0. 重置：若编辑器对话框残留则取消；先收软键盘（防遮挡）
-    sh("shell", "input", "keyevent", "4")
-    time.sleep(1)
+    # 0. 重置：仅当对话框残留时处理（先收键盘再点取消；
+    #    无条件按 BACK 会把 App 退回桌面）
     xml = dump()
-    pos = find(xml, "取消")
-    if pos:
-        tap(*pos); time.sleep(1)
-        print("[i] 已关闭残留对话框")
+    if "取消" in xml:
+        sh("shell", "input", "keyevent", "4")
+        time.sleep(1)
+        xml = dump()
+        pos = find(xml, "取消")
+        if pos:
+            tap(*pos); time.sleep(1)
+            print("[i] 已关闭残留对话框")
 
     # 1. 切「连接」tab（底部导航 y>2000）
     xml = dump()
@@ -125,9 +129,11 @@ def main():
         print("FAIL: 保存连接失败（对话框未关闭）"); sys.exit(1)
     print("[OK] 已保存连接")
 
-    # 5. 点「测试连接」（语义标签可能延迟，按卡片兜底）
+    # 5. 点「测试连接」（语义标签可能延迟出现，轮询等待；兜底按卡片/固定位）
     xml = dump()
     pos = find(xml, "测试连接")
+    if not pos:
+        pos, xml = wait_for("测试连接", timeout=20)
     if not pos:
         card = find(xml, base_url)
         if card:

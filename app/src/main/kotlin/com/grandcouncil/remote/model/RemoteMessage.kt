@@ -9,12 +9,14 @@ data class RemoteMessage(
     val role: Role,
     val content: String,
     val toolCalls: List<ToolCall> = emptyList(),
+    /** 推理内容（assistant 消息可含） */
+    val reasoning: String? = null,
     /** 是否等待审批 */
     val pendingApproval: Boolean = false,
     val timestamp: Long? = null,
 )
 
-enum class Role { USER, ASSISTANT, TOOL }
+enum class Role { USER, ASSISTANT, TOOL, NOTICE }
 
 data class ToolCall(
     val id: String,

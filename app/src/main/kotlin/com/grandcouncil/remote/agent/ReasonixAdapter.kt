@@ -1,13 +1,19 @@
 package com.grandcouncil.remote.agent
 
 import com.grandcouncil.remote.api.ReasonixApi
+import com.grandcouncil.remote.api.dto.HistoryMessageDto
 import com.grandcouncil.remote.model.AgentType
 import com.grandcouncil.remote.model.HeldBy
+import com.grandcouncil.remote.model.RemoteMessage
 import com.grandcouncil.remote.model.RemoteSession
+import com.grandcouncil.remote.model.Role
+import com.grandcouncil.remote.model.ToolCall
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 
 /**
  * Reasonix serve 适配实现（v1，26 端点协议 M0 已实测验证）。
- * M1 实现 listSessions；其余方法走 AgentAdapter 默认实现（M2/M3 启用）。
+ * M1 实现 listSessions + loadSessionHistory（只读）；其余方法走 AgentAdapter 默认实现。
  */
 class ReasonixAdapter(
     private val api: ReasonixApi,
@@ -31,4 +37,26 @@ class ReasonixAdapter(
                 path = dto.path,
             )
         }
+
+    override suspend fun loadSessionHistory(session: RemoteSession): List<RemoteMessage> {
+        // /history 返回「当前绑定会话」的历史——先 /resume 切换到目标会话
+        // （会话被其他进程占用时 serve 返回 409，此处向上抛出由 UI 提示）
+        api.resume(JsonObject(mapOf("path" to JsonPrimitive(session.path))))
+        return api.history().map { it.toRemoteMessage() }
+    }
 }
+
+private fun HistoryMessageDto.toRemoteMessage(): RemoteMessage = RemoteMessage(
+    id = toolCallId?.takeIf { it.isNotBlank() } ?: "msg-${content.hashCode()}",
+    role = when (role) {
+        "user" -> Role.USER
+        "assistant" -> Role.ASSISTANT
+        "tool" -> Role.TOOL
+        "notice" -> Role.NOTICE
+        else -> Role.NOTICE
+    },
+    content = content,
+    reasoning = reasoning,
+    toolCalls = toolCalls?.map { ToolCall(id = it.id, name = it.name, arguments = it.arguments) }
+        ?: emptyList(),
+)

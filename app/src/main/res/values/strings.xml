@@ -4,7 +4,9 @@
 
     <!-- 底部导航 -->
     <string name="tab_sessions">会话</string>
-    <string name="tab_connections">连接</string>
+    <string name="tab_connections">配置</string>
+    <string name="tab_wizard">向导</string>
+    <string name="settings_title">设置</string>
 
     <!-- 会话列表 -->
     <string name="sessions_empty">暂无会话</string>

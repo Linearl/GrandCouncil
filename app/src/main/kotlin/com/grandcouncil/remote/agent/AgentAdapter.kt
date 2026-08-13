@@ -20,9 +20,9 @@ interface AgentAdapter {
     /** 会话列表（M1 实现） */
     suspend fun listSessions(): List<RemoteSession>
 
-    /** 会话详情/历史加载（M2） */
-    suspend fun getSessionHistory(sessionId: String): List<com.grandcouncil.remote.model.RemoteMessage> =
-        throw UnsupportedOperationException("getSessionHistory 在 M2 实现")
+    /** 会话详情/历史加载（只读；内部会切换 serve 当前会话） */
+    suspend fun loadSessionHistory(session: RemoteSession): List<com.grandcouncil.remote.model.RemoteMessage> =
+        throw UnsupportedOperationException("loadSessionHistory 待实现")
 
     /** 发送消息（M2） */
     suspend fun submitMessage(sessionId: String?, message: String): Unit =

@@ -1,7 +1,6 @@
 package com.grandcouncil.remote.api.dto
 
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.JsonObject
 
 /**
  * serve 协议 DTO（v1.21.3+ 源码确认：internal/serve/serve.go sessions/status handler）。
@@ -29,6 +28,25 @@ data class StatusDto(
     val goal: String? = null,
     val goalStatus: String? = null,
     val cwd: String? = null,
-    val used: JsonObject? = null,
-    val window: JsonObject? = null,
+    /** 实测为整数（token 数），源码 ContextSnapshot 返回 map[string]int */
+    val used: Int? = null,
+    val window: Int? = null,
+)
+
+/** GET /history 响应元素（serve.go:838 historyMessage，JSON 数组） */
+@Serializable
+data class HistoryMessageDto(
+    val role: String = "",
+    val content: String = "",
+    val reasoning: String? = null,
+    val toolCalls: List<HistoryToolCallDto>? = null,
+    val toolCallId: String? = null,
+    val toolName: String? = null,
+)
+
+@Serializable
+data class HistoryToolCallDto(
+    val id: String = "",
+    val name: String = "",
+    val arguments: String = "",
 )

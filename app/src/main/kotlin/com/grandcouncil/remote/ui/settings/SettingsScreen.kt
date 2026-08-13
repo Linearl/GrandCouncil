@@ -1,0 +1,195 @@
+package com.grandcouncil.remote.ui.settings
+
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
+import com.grandcouncil.remote.R
+import com.grandcouncil.remote.ui.AppPreferences
+import com.grandcouncil.remote.ui.theme.DensityPreset
+import com.grandcouncil.remote.ui.theme.ReasonixPalettes
+import com.grandcouncil.remote.ui.theme.ThemePreset
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
+
+/**
+ * 设置页：主题配色（4 套 × 明暗，对标 reasonix TUI）+ 卡片密度（默认清爽）。
+ * 主题/密度持久化于 AppPreferences（DataStore）。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SettingsScreen(onBack: () -> Unit) {
+    val context = LocalContext.current
+    val prefs = remember { AppPreferences(context) }
+    val scope = rememberCoroutineScope()
+    var theme by remember { mutableStateOf(ThemePreset.WARM) }
+    var density by remember { mutableStateOf(DensityPreset.COMFORTABLE) }
+
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        prefs.theme.collect { theme = it }
+        prefs.density.collect { density = it }
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(stringResource(R.string.settings_title)) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                    }
+                },
+            )
+        },
+    ) { padding ->
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(padding)
+                .verticalScroll(rememberScrollState()),
+        ) {
+            SectionTitle("主题配色（对标 Reasonix Desktop）")
+            ThemePreset.entries.forEach { preset ->
+                val (dark, light) = ReasonixPalettes.getValue(preset)
+                ThemeRow(
+                    preset = preset,
+                    accentDark = dark.accent,
+                    accentLight = light.accent,
+                    selected = theme == preset,
+                    onClick = {
+                        theme = preset
+                        scope.launch { prefs.setTheme(preset) }
+                    },
+                )
+            }
+            HorizontalDivider(Modifier.padding(vertical = 12.dp))
+            SectionTitle("卡片信息密度")
+            DensityPreset.entries.forEach { preset ->
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .selectable(
+                            selected = density == preset,
+                            onClick = {
+                                density = preset
+                                scope.launch { prefs.setDensity(preset) }
+                            },
+                        )
+                        .padding(horizontal = 20.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(preset.label, modifier = Modifier.weight(1f))
+                    Text(
+                        if (preset == DensityPreset.COMFORTABLE) "默认 · 大间距易读" else "小间距 · 一屏更多",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        if (density == preset) "●" else "○",
+                        color = if (density == preset) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.outline,
+                        modifier = Modifier.padding(start = 8.dp),
+                    )
+                }
+            }
+            HorizontalDivider(Modifier.padding(vertical = 12.dp))
+            SectionTitle("关于")
+            Text(
+                "GrandCouncil v0.1 · Apache-2.0\n主题配色对标 reasonix serve TUI（cli/theme.go 8 套主题）",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun SectionTitle(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
+    )
+}
+
+@Composable
+private fun ThemeRow(
+    preset: ThemePreset,
+    accentDark: androidx.compose.ui.graphics.Color,
+    accentLight: androidx.compose.ui.graphics.Color,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .selectable(selected = selected, onClick = onClick)
+            .padding(horizontal = 20.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Surface(
+            shape = MaterialTheme.shapes.small,
+            color = accentLight,
+            modifier = Modifier.padding(end = 8.dp),
+        ) {
+            Text(
+                "A",
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                color = androidx.compose.ui.graphics.Color.White,
+                style = MaterialTheme.typography.labelLarge,
+            )
+        }
+        Surface(
+            shape = MaterialTheme.shapes.small,
+            color = accentDark,
+            modifier = Modifier.padding(end = 12.dp),
+        ) {
+            Text(
+                "A",
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                color = androidx.compose.ui.graphics.Color.White,
+                style = MaterialTheme.typography.labelLarge,
+            )
+        }
+        Column(Modifier.weight(1f)) {
+            Text(preset.label, style = MaterialTheme.typography.titleSmall)
+            Text(
+                preset.description,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Text(
+            if (selected) "●" else "○",
+            color = if (selected) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.outline,
+        )
+    }
+}
