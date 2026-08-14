@@ -84,9 +84,11 @@ import com.grandcouncil.remote.model.HeldBy
 import com.grandcouncil.remote.model.RemoteMessage
 import com.grandcouncil.remote.model.RemoteSession
 import com.grandcouncil.remote.model.Role
+import com.grandcouncil.remote.model.ToolCall
 import com.grandcouncil.remote.model.ToolCallStatus
 import com.grandcouncil.remote.ui.components.MessageContent
 import com.grandcouncil.remote.ui.components.ProcessCard
+import com.grandcouncil.remote.ui.components.ProcessStep
 import com.grandcouncil.remote.ui.components.ReasoningProcessStep
 import com.grandcouncil.remote.ui.components.ToolProcessStep
 import com.grandcouncil.remote.ui.export.SessionExporter
@@ -130,6 +132,8 @@ fun SessionDetailScreen(
         }
     }
     val listState = rememberLazyListState()
+    // 历史消息按 turn 聚合：同一轮多工具过程合并为 ProcessCard（避免逐条平铺）
+    val grouped = remember(state.messages) { groupMessages(state.messages) }
     // 点击消息区空白收起软键盘
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
@@ -147,7 +151,7 @@ fun SessionDetailScreen(
         state.streaming?.reasoning?.length,
     ) {
         val streaming = state.streaming
-        val count = state.messages.size + if (streaming != null) 1 else 0
+        val count = grouped.size + if (streaming != null) 1 else 0
         if (count <= 0) return@LaunchedEffect
         kotlinx.coroutines.delay(80)
         val info = listState.layoutInfo
@@ -331,6 +335,7 @@ fun SessionDetailScreen(
 
                 else -> {
                     Box(Modifier.weight(1f).fillMaxWidth()) {
+                        // 历史消息按 turn 聚合（grouped 在顶部计算，供滚动逻辑复用）
                         LazyColumn(
                             state = listState,
                             modifier = Modifier
@@ -347,10 +352,16 @@ fun SessionDetailScreen(
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                             contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 10.dp),
                         ) {
-                        // 不用 key：历史消息 id 无稳定来源，key 冲突会静默跳过渲染
-                        items(state.messages) { message ->
-                            MessageItem(message)
-                        }
+                            grouped.forEach { group ->
+                                when (group) {
+                                    is MessageGroup.Single -> item(key = "m-${group.message.id}") {
+                                        MessageItem(group.message)
+                                    }
+                                    is MessageGroup.Process -> item(key = group.key) {
+                                        ProcessHistoryCard(group)
+                                    }
+                                }
+                            }
                         state.streaming?.let { streaming ->
                             if (!streaming.isEmpty) {
                                 item(key = "streaming") {
@@ -365,7 +376,7 @@ fun SessionDetailScreen(
                         }
                     }
                         // T6 回到底部：离开底部（约 3 条）时右下角悬浮 ↓
-                        val totalCount = state.messages.size + if (state.streaming != null) 1 else 0
+                        val totalCount = grouped.size + if (state.streaming != null) 1 else 0
                         val awayFromBottom by remember {
                             derivedStateOf {
                                 val last = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
@@ -1098,4 +1109,141 @@ class SessionDetailViewModelFactory(
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T =
         SessionDetailViewModel(profile, session, SessionRepository()) as T
+}
+
+// ========== 历史消息按 turn 聚合（多工具过程折叠） ==========
+
+/** 渲染分组：单条消息 or 一个工具过程段（多步工具调用 + 最终文本） */
+private sealed interface MessageGroup {
+    data class Single(val message: RemoteMessage) : MessageGroup
+
+    data class Process(
+        val steps: List<ProcessStep>,
+        val finalText: String,
+        val key: String,
+    ) : MessageGroup
+}
+
+/**
+ * 把历史消息按"工具过程段"聚合：
+ * - assistant(含 toolCalls) + 后续 tool 结果 + assistant(最终文本) → Process 组
+ * - 其余（user / 独立 assistant / notice）→ Single
+ * serve 历史中同一轮的多工具调用是逐条 assistant 消息（每条 1 个 toolCall），
+ * 必须跨消息聚合才能让 ProcessCard 把多步骤折叠成摘要。
+ */
+private fun groupMessages(messages: List<RemoteMessage>): List<MessageGroup> {
+    val result = mutableListOf<MessageGroup>()
+    var i = 0
+    while (i < messages.size) {
+        val m = messages[i]
+        if (m.role == Role.ASSISTANT && m.toolCalls.isNotEmpty()) {
+            val stepCalls = mutableListOf<ToolCall>()
+            val reasoningTexts = mutableListOf<String>()
+            val outputs = mutableMapOf<String, String>()
+            var finalText = ""
+            var j = i
+            var sawTool = false
+            while (j < messages.size) {
+                val cur = messages[j]
+                when {
+                    cur.role == Role.ASSISTANT && cur.toolCalls.isNotEmpty() -> {
+                        stepCalls += cur.toolCalls
+                        if (!cur.reasoning.isNullOrBlank()) reasoningTexts += cur.reasoning
+                        if (cur.content.isNotBlank()) finalText = cur.content
+                        j++
+                    }
+                    cur.role == Role.TOOL -> {
+                        sawTool = true
+                        outputs[cur.id] = cur.content
+                        j++
+                    }
+                    cur.role == Role.ASSISTANT && cur.toolCalls.isEmpty() -> {
+                        if (cur.content.isNotBlank()) finalText = cur.content
+                        j++
+                        break
+                    }
+                    else -> break
+                }
+            }
+            if (sawTool) {
+                val steps: List<ProcessStep> = buildList {
+                    reasoningTexts.forEach { add(ReasoningProcessStep(it)) }
+                    stepCalls.forEach { tc ->
+                        add(
+                            ToolProcessStep(
+                                id = tc.id,
+                                name = tc.name,
+                                args = tc.arguments,
+                                output = outputs[tc.id] ?: "",
+                                error = "",
+                                durationMs = 0,
+                                status = ToolCallStatus.DONE,
+                            ),
+                        )
+                    }
+                }
+                result += MessageGroup.Process(
+                    steps = steps,
+                    finalText = finalText,
+                    key = "proc-" + steps.joinToString("-") { it.label },
+                )
+                i = j
+            } else {
+                // 无 tool 结果消息（异常数据）→ 按单条渲染
+                result += MessageGroup.Single(m)
+                i++
+            }
+        } else {
+            result += MessageGroup.Single(m)
+            i++
+        }
+    }
+    return result
+}
+
+/** 历史过程段渲染：ProcessCard（默认折叠尾部 2 步 + 控制条）+ 最终文本气泡 */
+@Composable
+private fun ProcessHistoryCard(group: MessageGroup.Process) {
+    Column(
+        Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        ProcessCard(
+            steps = group.steps,
+            stepContent = { step ->
+                when (step) {
+                    is ReasoningProcessStep -> Text(
+                        "💡 推理过程",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(vertical = 2.dp),
+                    )
+                    is ToolProcessStep -> Text(
+                        "🔧 ${step.label}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.tertiary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(vertical = 2.dp),
+                    )
+                }
+            },
+        )
+        if (group.finalText.isNotBlank()) {
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                shape = MaterialTheme.shapes.large,
+                modifier = Modifier.widthIn(max = 340.dp),
+            ) {
+                MessageContent(
+                    content = group.finalText,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.padding(12.dp),
+                )
+            }
+        }
+    }
 }
