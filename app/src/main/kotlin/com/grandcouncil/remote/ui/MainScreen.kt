@@ -1,10 +1,14 @@
 package com.grandcouncil.remote.ui
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Menu
@@ -33,6 +37,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -90,40 +95,10 @@ fun MainScreen() {
         scope.launch { prefs.setLastPosition(profile?.id, sessionId) }
     }
 
-    ModalNavigationDrawer(
-        drawerState = drawerState,
-        // 禁用抽屉拖动手势：会话列表需要左滑露出删除按钮（避免手势冲突）；scrim 点击仍可关闭
-        gesturesEnabled = false,
-        drawerContent = {
-            ModalDrawerSheet {
-                SessionDrawerContent(
-                    onSelectSession = {
-                        selectedSession = it
-                        draftProfile = null
-                        section = MainSection.CHAT
-                        rememberPosition(it.profile, it.session.id)
-                        scope.launch { drawerState.close() }
-                    },
-                    onOpenConfig = {
-                        section = MainSection.CONFIG
-                        scope.launch { drawerState.close() }
-                    },
-                    onOpenWizard = {
-                        section = MainSection.WIZARD
-                        scope.launch { drawerState.close() }
-                    },
-                    onNewSessionCreated = { profile ->
-                        selectedSession = null
-                        draftProfile = profile
-                        section = MainSection.CHAT
-                        rememberPosition(profile, null)
-                        scope.launch { drawerState.close() }
-                    },
-                )
-            }
-        },
-    ) {
-        // A3 通知深链：open_session extra → 打开会话栏（列表页）供用户选择
+    // 自定义抽屉（Material3 ModalNavigationDrawer 的 gesturesEnabled=false 会同时
+    // 禁用 scrim 点击——会话列表左滑删除需要禁拖动手势，故自绘：scrim 点击收起 + 宽度 60%）
+    Box(Modifier.fillMaxSize()) {
+        // 通知深链：open_session extra → 打开会话栏（列表页）供用户选择
         val activity = LocalContext.current as? android.app.Activity
         LaunchedEffect(Unit) {
             if (activity?.intent?.hasExtra("open_session") == true) {
@@ -185,6 +160,60 @@ fun MainScreen() {
                 MainSection.CONFIG -> ConfigScreen()
                 MainSection.WIZARD -> WizardScreen()
                 MainSection.DEMO -> DemoChatScreen(onBack = { section = MainSection.CHAT })
+            }
+        }
+
+        // scrim：点击主区任意位置收起抽屉
+        androidx.compose.animation.AnimatedVisibility(
+            visible = drawerState.isOpen,
+            enter = androidx.compose.animation.fadeIn(),
+            exit = androidx.compose.animation.fadeOut(),
+        ) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.4f))
+                    .clickable { scope.launch { drawerState.close() } },
+            )
+        }
+
+        // 抽屉面板：宽度 60%（手机竖屏下约一屏 60%；动画左滑入）
+        androidx.compose.animation.AnimatedVisibility(
+            visible = drawerState.isOpen,
+            enter = androidx.compose.animation.slideInHorizontally(initialOffsetX = { -it }) +
+                androidx.compose.animation.fadeIn(),
+            exit = androidx.compose.animation.slideOutHorizontally(targetOffsetX = { -it }) +
+                androidx.compose.animation.fadeOut(),
+        ) {
+            ModalDrawerSheet(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .fillMaxWidth(0.6f),
+            ) {
+                SessionDrawerContent(
+                    onSelectSession = {
+                        selectedSession = it
+                        draftProfile = null
+                        section = MainSection.CHAT
+                        rememberPosition(it.profile, it.session.id)
+                        scope.launch { drawerState.close() }
+                    },
+                    onOpenConfig = {
+                        section = MainSection.CONFIG
+                        scope.launch { drawerState.close() }
+                    },
+                    onOpenWizard = {
+                        section = MainSection.WIZARD
+                        scope.launch { drawerState.close() }
+                    },
+                    onNewSessionCreated = { profile ->
+                        selectedSession = null
+                        draftProfile = profile
+                        section = MainSection.CHAT
+                        rememberPosition(profile, null)
+                        scope.launch { drawerState.close() }
+                    },
+                )
             }
         }
     }
