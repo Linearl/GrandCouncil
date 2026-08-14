@@ -56,6 +56,8 @@ data class SessionListUiState(
     val favorites: Set<String> = emptySet(),
     val density: DensityPreset = DensityPreset.COMFORTABLE,
     val loading: Boolean = false,
+    /** 手动刷新转圈中（自动刷新静默，不置位） */
+    val refreshing: Boolean = false,
     val error: String? = null,
 ) {
     /** 全部聚合会话（含连接） */
@@ -210,12 +212,19 @@ class SessionListViewModel(
         }
     }
 
-    /** 聚合刷新：并发拉取全部连接的会话 + 服务器信息 */
-    fun refresh() {
+    /** 聚合刷新：并发拉取全部连接的会话 + 服务器信息。showSpinner=true 时显示刷新转圈 */
+    fun refresh(showSpinner: Boolean = false) {
         val profiles = _uiState.value.profiles
-        if (profiles.isEmpty()) return
+        if (profiles.isEmpty()) {
+            _uiState.value = _uiState.value.copy(loading = false, refreshing = false)
+            return
+        }
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(loading = true, error = null)
+            _uiState.value = _uiState.value.copy(
+                loading = true,
+                refreshing = showSpinner,
+                error = null,
+            )
             coroutineScope {
                 val jobs = profiles.map { profile ->
                     async {
@@ -247,7 +256,7 @@ class SessionListViewModel(
                         )
                     }
                 }
-                _uiState.value = _uiState.value.copy(loading = false)
+                _uiState.value = _uiState.value.copy(loading = false, refreshing = false)
             }
         }
     }

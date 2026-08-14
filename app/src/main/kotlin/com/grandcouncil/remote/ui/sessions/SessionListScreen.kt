@@ -15,12 +15,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -63,6 +65,7 @@ import com.grandcouncil.remote.model.HeldBy
 import com.grandcouncil.remote.repository.SessionRepository
 import com.grandcouncil.remote.ui.AppPreferences
 import com.grandcouncil.remote.ui.theme.DensityPreset
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import java.time.LocalDate
@@ -86,8 +89,14 @@ fun SessionDrawerContent(
     val state by viewModel.uiState.collectAsState()
     var deviceMenuOpen by remember { mutableStateOf(false) }
 
-    // 每次抽屉展开/组合时刷新
-    LaunchedEffect(Unit) { viewModel.refresh() }
+    // 每次抽屉展开/组合时刷新，并每 30s 自动静默刷新（非 App 端增删会话也能看到）
+    LaunchedEffect(Unit) {
+        viewModel.refresh()
+        while (true) {
+            delay(30_000)
+            viewModel.refresh()
+        }
+    }
 
     Column(Modifier.fillMaxSize()) {
         // 顶部：设备选择器 + 新建会话
@@ -102,6 +111,8 @@ fun SessionDrawerContent(
                 viewModel.setDeviceFilter(it)
             },
             onNewSession = { viewModel.newSession { profile -> onNewSessionCreated(profile) } },
+            refreshing = state.refreshing,
+            onRefresh = { viewModel.refresh(showSpinner = true) },
         )
         // 搜索框（A2；本地即时显示 + VM 200ms 防抖过滤）
         var localQuery by remember { mutableStateOf(state.searchQuery) }
@@ -212,6 +223,8 @@ private fun DeviceSelector(
     onToggle: () -> Unit,
     onSelect: (String?) -> Unit,
     onNewSession: () -> Unit,
+    refreshing: Boolean = false,
+    onRefresh: () -> Unit = {},
 ) {
     Box(Modifier.fillMaxWidth()) {
         Card(
@@ -236,12 +249,32 @@ private fun DeviceSelector(
                 Text("▾", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-        // 新建会话按钮（A1：顶栏标题区 New Chat 对齐）
-        TextButton(
-            onClick = onNewSession,
-            modifier = Modifier.align(Alignment.CenterEnd).padding(end = 16.dp),
+        // 手动刷新 + 新建会话按钮（A1：顶栏标题区 New Chat 对齐）
+        Row(
+            Modifier.align(Alignment.CenterEnd).padding(end = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("＋ 新建", style = MaterialTheme.typography.labelMedium)
+            IconButton(
+                onClick = onRefresh,
+                enabled = !refreshing,
+                modifier = Modifier.size(36.dp),
+            ) {
+                if (refreshing) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                    )
+                } else {
+                    Icon(
+                        Icons.Filled.Refresh,
+                        contentDescription = "刷新会话列表",
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+            }
+            TextButton(onClick = onNewSession) {
+                Text("＋ 新建", style = MaterialTheme.typography.labelMedium)
+            }
         }
         DropdownMenu(expanded = expanded, onDismissRequest = onToggle) {
             DropdownMenuItem(
