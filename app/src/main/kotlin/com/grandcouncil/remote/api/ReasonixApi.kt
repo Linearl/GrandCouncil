@@ -42,6 +42,10 @@ interface ReasonixApi {
     @POST("submit")
     suspend fun submit(@Body body: JsonObject): JsonObject
 
+    /** POST /submit — 原始响应（用于 /effort 斜杠命令：204 无 body 需走 Response 拿状态码） */
+    @POST("submit")
+    suspend fun submitRaw(@Body body: JsonObject): retrofit2.Response<Unit>
+
     /** POST /cancel — 取消当前（M2） */
     @POST("cancel")
     suspend fun cancel(@Body body: JsonObject = JsonObject(emptyMap())): JsonObject

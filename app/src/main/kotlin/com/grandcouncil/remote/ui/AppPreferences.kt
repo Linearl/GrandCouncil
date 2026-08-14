@@ -28,6 +28,11 @@ class AppPreferences(private val context: Context) {
     // C5 启动恢复：上次连接与会话（浏览位置）
     private val lastProfileIdKey = stringPreferencesKey("last_profile_id")
     private val lastSessionIdKey = stringPreferencesKey("last_session_id")
+    // 联网搜索意图注入：开关 + 可自定义注入文本
+    private val webSearchKey = booleanPreferencesKey("web_search_inject")
+    private val webSearchPromptKey = stringPreferencesKey("web_search_prompt")
+    // 思考档位：auto / disabled / low / high / max（对标 desktop /effort）
+    private val effortKey = stringPreferencesKey("effort_level")
 
     val theme: Flow<ThemePreset> = context.appDataStore.data.map { prefs ->
         prefs[themeKey]?.let { runCatching { ThemePreset.valueOf(it) }.getOrNull() }
@@ -41,6 +46,39 @@ class AppPreferences(private val context: Context) {
 
     val lastProfileId: Flow<String?> = context.appDataStore.data.map { prefs -> prefs[lastProfileIdKey] }
     val lastSessionId: Flow<String?> = context.appDataStore.data.map { prefs -> prefs[lastSessionIdKey] }
+
+    /** 联网搜索意图注入开关（默认关；开启后发送时消息末尾追加注入文本） */
+    val webSearch: Flow<Boolean> = context.appDataStore.data.map { prefs ->
+        prefs[webSearchKey] ?: false
+    }
+
+    suspend fun setWebSearch(enabled: Boolean) {
+        context.appDataStore.edit { it[webSearchKey] = enabled }
+    }
+
+    /** 联网注入文本（默认值见 DEFAULT_WEB_SEARCH_PROMPT，设置页可自定义） */
+    val webSearchPrompt: Flow<String> = context.appDataStore.data.map { prefs ->
+        prefs[webSearchPromptKey] ?: DEFAULT_WEB_SEARCH_PROMPT
+    }
+
+    suspend fun setWebSearchPrompt(text: String) {
+        context.appDataStore.edit { it[webSearchPromptKey] = text }
+    }
+
+    /** 思考档位（默认 auto=不干预；对应 /effort 斜杠命令） */
+    val effortLevel: Flow<String> = context.appDataStore.data.map { prefs ->
+        prefs[effortKey] ?: "auto"
+    }
+
+    suspend fun setEffortLevel(level: String) {
+        context.appDataStore.edit { it[effortKey] = level }
+    }
+
+    companion object {
+        /** 联网注入默认文案（文档 §2.2；开启联网开关时追加到用户消息末尾） */
+        const val DEFAULT_WEB_SEARCH_PROMPT =
+            "（请优先联网搜索最新信息后再回答：涉及时效性、新闻、价格、规格、事实核实时必须搜索；回答中标注信息来源/链接；搜索不到再基于已有知识回答并说明）"
+    }
 
     val biometricLock: Flow<Boolean> = context.appDataStore.data.map { prefs ->
         prefs[biometricLockKey] ?: false // 默认关闭

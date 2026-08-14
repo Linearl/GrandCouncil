@@ -10,6 +10,7 @@ import com.grandcouncil.remote.connection.ConnectionProfile
 import com.grandcouncil.remote.model.RemoteMessage
 import com.grandcouncil.remote.model.RemoteSession
 import com.grandcouncil.remote.model.Role
+import com.grandcouncil.remote.ui.AppPreferences
 import com.grandcouncil.remote.model.ToolCall
 import com.grandcouncil.remote.model.ToolCallStatus
 import com.grandcouncil.remote.repository.SessionRepository
@@ -58,6 +59,13 @@ data class SessionDetailUiState(
     val contextWindow: Int? = null,
     /** T5 发送失败后待恢复的输入框文本（UI 消费后调 clearRestoreInput） */
     val restoreInput: String? = null,
+    /** 联网搜索意图注入开关（文档 §2.2） */
+    val webSearchEnabled: Boolean = false,
+    val webSearchPrompt: String = AppPreferences.DEFAULT_WEB_SEARCH_PROMPT,
+    /** 思考档位（auto=不干预；disabled/low/high/max 对应 /effort） */
+    val effortLevel: String = "auto",
+    /** serve 拒绝 /effort（不支持）→ 思考按钮置灰 */
+    val effortUnsupported: Boolean = false,
 )
 
 /** 审批模式三档（对应 serve ask/auto/yolo） */
@@ -71,6 +79,7 @@ class SessionDetailViewModel(
     private val profile: ConnectionProfile,
     private val session: RemoteSession?,
     private val repository: SessionRepository,
+    private val prefs: AppPreferences,
     private val sseClient: SseClient = SseClient.forProfile(profile),
 ) : ViewModel() {
 
@@ -78,6 +87,22 @@ class SessionDetailViewModel(
     val uiState: StateFlow<SessionDetailUiState> = _uiState.asStateFlow()
 
     init {
+        // 收集联网/思考偏好（文档 §2.2 / §3.2 持久化）
+        viewModelScope.launch {
+            prefs.webSearch.collect { enabled ->
+                _uiState.value = _uiState.value.copy(webSearchEnabled = enabled)
+            }
+        }
+        viewModelScope.launch {
+            prefs.webSearchPrompt.collect { prompt ->
+                _uiState.value = _uiState.value.copy(webSearchPrompt = prompt)
+            }
+        }
+        viewModelScope.launch {
+            prefs.effortLevel.collect { level ->
+                _uiState.value = _uiState.value.copy(effortLevel = level)
+            }
+        }
         load()
         observeEvents()
     }
@@ -283,13 +308,36 @@ class SessionDetailViewModel(
 
     /** 发送消息（T5 乐观插入：立即显示用户消息；失败移除并恢复输入框文本） */
     fun send(text: String) {
-        val input = text.trim()
-        if (input.isEmpty()) return
+        val raw = text.trim()
+        if (raw.isEmpty()) return
         viewModelScope.launch {
+            val st = _uiState.value
+            // 联网注入：开启时消息末尾追加注入文本（文档 §2.2）
+            val input = if (st.webSearchEnabled) {
+                "$raw\n\n${st.webSearchPrompt}"
+            } else {
+                raw
+            }
+            // 思考档位：非 auto 时先发 /effort 斜杠命令（serve 端拦截，204 后无消息记录）
+            val effort = st.effortLevel
+            if (effort != "auto") {
+                val code = repository.effortCommand(profile, effort)
+                if (code != null && code >= 200 && code < 300) {
+                    // 命令生效
+                } else if (code != null) {
+                    // 500：忙碌或模型不支持；标记不支持（文案含 not configurable）并提示
+                    _uiState.value = _uiState.value.copy(
+                        statusText = "思考档位切换失败（HTTP $code）：任务进行中或服务不支持",
+                    )
+                    if (code == 500 && repository.lastEffortError?.contains("not configurable") == true) {
+                        _uiState.value = _uiState.value.copy(effortUnsupported = true)
+                    }
+                }
+            }
             val userMsg = RemoteMessage(
                 id = "user-${System.currentTimeMillis()}",
                 role = Role.USER,
-                content = input,
+                content = raw,
                 timestamp = System.currentTimeMillis(),
             )
             _uiState.value = _uiState.value.copy(
@@ -298,15 +346,33 @@ class SessionDetailViewModel(
             )
             runCatching {
                 repository.submit(profile, input)
+            }.onSuccess {
+                // 首帧反馈（文档 §1.2）：发送成功立即出现 assistant 占位（思考中…），不等 turn_started
+                _uiState.value = _uiState.value.copy(
+                    streaming = _uiState.value.streaming ?: StreamingMessage(),
+                    running = true,
+                )
             }.onFailure { e ->
                 // 失败：移除乐观消息 + 恢复输入框文本（UI 收到 restoreInput 后回填）
                 _uiState.value = _uiState.value.copy(
                     messages = _uiState.value.messages.filterNot { it.id == userMsg.id },
                     error = "发送失败：${e.message ?: "未知错误"}",
-                    restoreInput = input,
+                    restoreInput = raw,
                 )
             }
         }
+    }
+
+    /** 联网开关切换（§2.2，DataStore 持久化跨会话保留） */
+    fun setWebSearch(enabled: Boolean) {
+        viewModelScope.launch { prefs.setWebSearch(enabled) }
+        _uiState.value = _uiState.value.copy(webSearchEnabled = enabled)
+    }
+
+    /** 思考档位切换（§3.2，DataStore 持久化；发送时经 /effort 命令生效） */
+    fun setEffort(level: String) {
+        viewModelScope.launch { prefs.setEffortLevel(level) }
+        _uiState.value = _uiState.value.copy(effortLevel = level, effortUnsupported = false)
     }
 
     /** 审批回复（allow/session/persist 语义对应 serve /approve） */

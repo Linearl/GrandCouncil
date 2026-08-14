@@ -4,6 +4,11 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -34,6 +39,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -50,6 +56,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -63,6 +70,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
@@ -120,6 +128,8 @@ fun SessionDetailScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     var input by remember { mutableStateOf("") }
+    // 思考档位选择对话框（文档 §3.2）
+    var effortMenuOpen by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     // 密度联动（问题二：紧凑模式下工具区更紧凑）
@@ -291,6 +301,11 @@ fun SessionDetailScreen(
                         input = ""
                     },
                     onStop = { viewModel.cancel() },
+                    webSearchEnabled = state.webSearchEnabled,
+                    onToggleWebSearch = { viewModel.setWebSearch(!state.webSearchEnabled) },
+                    effortLabel = effortLabel(state.effortLevel),
+                    effortUnsupported = state.effortUnsupported,
+                    onOpenEffort = { effortMenuOpen = true },
                     voiceSlot = {
                         VoiceInputButton(
                             onResult = { text -> input = if (input.isBlank()) text else "$input $text" },
@@ -298,6 +313,16 @@ fun SessionDetailScreen(
                         )
                     },
                 )
+                if (effortMenuOpen) {
+                    EffortMenuDialog(
+                        current = state.effortLevel,
+                        onSelect = { level ->
+                            viewModel.setEffort(level)
+                            effortMenuOpen = false
+                        },
+                        onDismiss = { effortMenuOpen = false },
+                    )
+                }
             }
         },
     ) { padding ->
@@ -492,6 +517,11 @@ private fun InputBar(
     onInput: (String) -> Unit,
     onSend: () -> Unit,
     onStop: () -> Unit,
+    webSearchEnabled: Boolean,
+    onToggleWebSearch: () -> Unit,
+    effortLabel: String,
+    effortUnsupported: Boolean,
+    onOpenEffort: () -> Unit,
     voiceSlot: @Composable () -> Unit = {},
 ) {
     val haptic = LocalHapticFeedback.current
@@ -512,13 +542,57 @@ private fun InputBar(
         Row(
             Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
+            // 联网开关（文档 §2.2）：开启高亮 + 输入框占位符提示"已开启联网"
+            IconButton(
+                onClick = onToggleWebSearch,
+                enabled = !readOnly,
+                modifier = Modifier
+                    .size(34.dp)
+                    .background(
+                        if (webSearchEnabled) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                        CircleShape,
+                    ),
+            ) {
+                Text(
+                    "🌐",
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.alpha(if (webSearchEnabled) 1f else 0.55f),
+                )
+            }
+            // 思考档位（文档 §3.2）：💭 + 当前档位标签；服务不支持时置灰
+            IconButton(
+                onClick = onOpenEffort,
+                enabled = !readOnly && !effortUnsupported,
+                modifier = Modifier
+                    .size(34.dp)
+                    .background(
+                        if (effortUnsupported) MaterialTheme.colorScheme.surfaceVariant
+                        else if (effortLabel != "自动") MaterialTheme.colorScheme.tertiaryContainer
+                        else Color.Transparent,
+                        CircleShape,
+                    ),
+            ) {
+                Text(
+                    if (effortUnsupported) "💭" else "💭 $effortLabel",
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier.alpha(if (effortUnsupported) 0.4f else 1f),
+                )
+            }
             voiceSlot()
             OutlinedTextField(
                 value = input,
                 onValueChange = onInput,
-                placeholder = { Text(if (readOnly) "只读会话（发送将接管）" else "回复或输入指令…") },
+                placeholder = {
+                    Text(
+                        when {
+                            readOnly -> "只读会话（发送将接管）"
+                            webSearchEnabled -> "🌐 已开启联网 · 回复或输入指令…"
+                            else -> "回复或输入指令…"
+                        },
+                    )
+                },
                 enabled = !readOnly,
                 modifier = Modifier.weight(1f),
                 maxLines = 3,
@@ -726,13 +800,58 @@ private fun StreamingItem(streaming: StreamingMessage, density: DensityPreset = 
                 shape = MaterialTheme.shapes.large,
                 modifier = Modifier.widthIn(max = 340.dp),
             ) {
-                MessageContent(
-                    content = streaming.text,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.padding(12.dp),
+                // 流式光标（文档 §1.2）：生成中文本末尾 ▍ 闪烁（500ms）
+                val cursorAlpha = rememberInfiniteTransition(label = "cursor").animateFloat(
+                    initialValue = 1f,
+                    targetValue = 0f,
+                    animationSpec = infiniteRepeatable(
+                        animation = tween(500),
+                        repeatMode = RepeatMode.Reverse,
+                    ),
+                    label = "cursorAlpha",
                 )
+                Row(Modifier.padding(12.dp)) {
+                    MessageContent(
+                        content = streaming.text,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    Text(
+                        "▍",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = cursorAlpha.value),
+                    )
+                }
             }
+        } else if (streaming.isEmpty) {
+            // 思考中占位（文档 §1.2）：推理/工具阶段尚无文本时，三点动画提示"正在思考"
+            ThinkingDots()
+        }
+    }
+}
+
+/** 思考中三点动画（文档 §1.2 加载指示，等效 rikkahub DotLoading） */
+@Composable
+private fun ThinkingDots() {
+    val transition = rememberInfiniteTransition(label = "thinking")
+    val dot1 = transition.animateFloat(0.3f, 1f, infiniteRepeatable(tween(400), RepeatMode.Reverse), label = "d1")
+    val dot2 = transition.animateFloat(0.3f, 1f, infiniteRepeatable(tween(400, delayMillis = 150), RepeatMode.Reverse), label = "d2")
+    val dot3 = transition.animateFloat(0.3f, 1f, infiniteRepeatable(tween(400, delayMillis = 300), RepeatMode.Reverse), label = "d3")
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        shape = MaterialTheme.shapes.large,
+        modifier = Modifier.widthIn(max = 340.dp),
+    ) {
+        Row(
+            Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text("思考中", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("●", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = dot1.value))
+            Text("●", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = dot2.value))
+            Text("●", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = dot3.value))
         }
     }
 }
@@ -1105,7 +1224,12 @@ class SessionDetailViewModelFactory(
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T =
-        SessionDetailViewModel(profile, session, SessionRepository()) as T
+        SessionDetailViewModel(
+            profile,
+            session,
+            SessionRepository(),
+            AppPreferences(appContext),
+        ) as T
 }
 
 // ========== 历史消息按 turn 聚合（多工具过程折叠） ==========
@@ -1302,4 +1426,64 @@ private fun rememberAutoScrollFollower(
             }
         }
     }
+}
+
+// ========== 思考档位（文档 §3.2，对标 desktop /effort） ==========
+
+/** 档位 → 按钮标签（auto 显示"自动"） */
+private fun effortLabel(level: String): String = when (level) {
+    "disabled" -> "关"
+    "low" -> "低"
+    "high" -> "高"
+    "max" -> "最大"
+    else -> "自动"
+}
+
+/** 思考档位选择对话框：自动 / 关闭思考 / 低 / 高 / 最大（当前档位单选高亮） */
+@Composable
+private fun EffortMenuDialog(
+    current: String,
+    onSelect: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val options = listOf(
+        "auto" to "自动（跟随模型默认）",
+        "disabled" to "关闭思考（直接作答）",
+        "low" to "低",
+        "high" to "高",
+        "max" to "最大",
+    )
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("💭 思考档位") },
+        text = {
+            Column {
+                Text(
+                    "对标桌面端 /effort：切换即时生效，下次发送时应用（服务端 busy 时会提示失败）。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(10.dp))
+                options.forEach { (level, label) ->
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable { onSelect(level) }
+                            .padding(vertical = 8.dp, horizontal = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            if (level == current) "●" else "○",
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(end = 10.dp),
+                        )
+                        Text(label, style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("关闭") }
+        },
+    )
 }

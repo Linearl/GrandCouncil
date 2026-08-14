@@ -1,5 +1,8 @@
 package com.grandcouncil.remote.ui.settings
 
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -9,15 +12,18 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -54,6 +60,10 @@ fun SettingsScreen(onBack: () -> Unit) {
     var amoledDark by remember { mutableStateOf(false) }
     var dynamicColor by remember { mutableStateOf(false) }
     var autoScroll by remember { mutableStateOf(true) }
+    // 联网注入文本编辑（文档 §2.2）
+    var webSearchPrompt by remember { mutableStateOf(AppPreferences.DEFAULT_WEB_SEARCH_PROMPT) }
+    var webPromptEditOpen by remember { mutableStateOf(false) }
+    var webSearchPromptDraft by remember { mutableStateOf(AppPreferences.DEFAULT_WEB_SEARCH_PROMPT) }
 
     androidx.compose.runtime.LaunchedEffect(Unit) {
         prefs.theme.collect { theme = it }
@@ -62,6 +72,7 @@ fun SettingsScreen(onBack: () -> Unit) {
         prefs.amoledDark.collect { amoledDark = it }
         prefs.dynamicColor.collect { dynamicColor = it }
         prefs.autoScroll.collect { autoScroll = it }
+        prefs.webSearchPrompt.collect { webSearchPrompt = it }
     }
 
     Scaffold(
@@ -194,6 +205,70 @@ fun SettingsScreen(onBack: () -> Unit) {
                     onCheckedChange = { on ->
                         amoledDark = on
                         scope.launch { prefs.setAmoledDark(on) }
+                    },
+                )
+            }
+            HorizontalDivider(Modifier.padding(vertical = 12.dp))
+            SectionTitle("联网与思考")
+            // 联网注入文本（文档 §2.2：可自定义；点击编辑）
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 6.dp)
+                    .clickable { webPromptEditOpen = true },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("联网注入文本", style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        "发送时追加到消息末尾，引导服务端搜索（点击编辑）",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Text(
+                    if (webSearchPrompt != AppPreferences.DEFAULT_WEB_SEARCH_PROMPT) "已自定义" else "默认",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+            if (webPromptEditOpen) {
+                AlertDialog(
+                    onDismissRequest = { webPromptEditOpen = false },
+                    title = { Text("联网注入文本") },
+                    text = {
+                        Column {
+                            Text(
+                                "开启输入栏 🌐 后，每次发送都会在消息末尾追加这段文本。留空恢复默认。",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Spacer(Modifier.height(10.dp))
+                            OutlinedTextField(
+                                value = webSearchPromptDraft,
+                                onValueChange = { webSearchPromptDraft = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                minLines = 4,
+                                maxLines = 8,
+                            )
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(
+                            onClick = {
+                                scope.launch {
+                                    prefs.setWebSearchPrompt(
+                                        webSearchPromptDraft.trim().ifEmpty {
+                                            AppPreferences.DEFAULT_WEB_SEARCH_PROMPT
+                                        },
+                                    )
+                                }
+                                webPromptEditOpen = false
+                            },
+                        ) { Text("保存") }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { webPromptEditOpen = false }) { Text("取消") }
                     },
                 )
             }

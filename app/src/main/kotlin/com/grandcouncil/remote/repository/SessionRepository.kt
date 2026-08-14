@@ -60,6 +60,30 @@ class SessionRepository {
             }.map { }
         }
 
+    /** 思考档位命令：POST /submit {"input": "/effort <level>"}，返回 HTTP 状态码（null=网络异常） */
+    @Volatile
+    var lastEffortError: String? = null
+
+    suspend fun effortCommand(profile: ConnectionProfile, level: String): Int? =
+        withContext(Dispatchers.IO) {
+            val resp = runCatching {
+                HttpClientFactory.createApi(profile).submitRaw(
+                    buildJsonObject { put("input", JsonPrimitive("/effort $level")) },
+                )
+            }
+            resp.fold(
+                onSuccess = { r ->
+                    lastEffortError = if (r.code() >= 400) {
+                        runCatching { r.errorBody()?.string() }.getOrNull()
+                    } else {
+                        null
+                    }
+                    r.code()
+                },
+                onFailure = { null },
+            )
+        }
+
     /** 审批回复 */
     suspend fun approve(profile: ConnectionProfile, body: JsonObject): Result<Unit> =
         withContext(Dispatchers.IO) {
