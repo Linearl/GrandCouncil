@@ -96,9 +96,13 @@ class SessionDetailViewModel(
                     )
                 },
                 onFailure = { e ->
+                    val msg = e.message ?: "加载失败"
+                    val friendly = if (msg.contains("409")) {
+                        "该会话被其他进程（桌面版等）占用——请先在桌面版关闭该会话标签页再试"
+                    } else msg
                     _uiState.value = _uiState.value.copy(
                         loading = false,
-                        error = e.message ?: "加载失败",
+                        error = friendly,
                     )
                 },
             )

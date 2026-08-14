@@ -69,6 +69,15 @@ data class SessionListUiState(
         get() = if (deviceFilter == null) aggregated
         else aggregated.filter { it.profile.id == deviceFilter }
 
+    /** 按项目分组的会话（全部设备视图；组头=设备名） */
+    val groupedByProject: List<Pair<ConnectionProfile, List<AggregatedSession>>>
+        get() {
+            val byProfile = filteredByDevice.groupBy { it.profile.id }
+            return profiles
+                .filter { it.id in byProfile.keys }
+                .map { profile -> profile to byProfile.getValue(profile.id) }
+        }
+
     /** 应用状态筛选 + 搜索 + 收藏后的会话 */
     val filteredSessions: List<AggregatedSession>
         get() {
@@ -143,6 +152,10 @@ class SessionListViewModel(
         _uiState.value = _uiState.value.copy(searchQuery = query)
     }
 
+    fun clearError() {
+        _uiState.value = _uiState.value.copy(error = null)
+    }
+
     /** 新建会话（目标：设备筛选中选中的设备，否则第一个连接）；成功回调进入草稿聊天 */
     fun newSession(onCreated: (ConnectionProfile) -> Unit = {}) {
         val profiles = _uiState.value.profiles
@@ -157,10 +170,20 @@ class SessionListViewModel(
         }
     }
 
-    /** 删除会话（serve POST /delete-session，name 即 session.id）→ 刷新 */
+    /** 删除会话（serve POST /delete-session，name 即 session.id）→ 刷新；持有中 409 提示 */
     fun deleteSession(item: AggregatedSession) {
         viewModelScope.launch {
-            repository.deleteSession(item.profile, item.session.id).onSuccess { refresh() }
+            repository.deleteSession(item.profile, item.session.id)
+                .onSuccess { refresh() }
+                .onFailure { e ->
+                    val msg = e.message ?: ""
+                    _uiState.value = _uiState.value.copy(
+                        error = if (msg.contains("409")) {
+                            "删除失败：该会话正在使用中（当前打开或被其他进程持有），请先关闭再删除"
+                        } else "删除失败：${e.message ?: "未知错误"}",
+                    )
+                    refresh()
+                }
         }
     }
 

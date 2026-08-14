@@ -55,6 +55,8 @@ fun MainScreen() {
 
     ModalNavigationDrawer(
         drawerState = drawerState,
+        // 禁用抽屉拖动手势：会话列表需要左滑露出删除按钮（避免手势冲突）；scrim 点击仍可关闭
+        gesturesEnabled = false,
         drawerContent = {
             ModalDrawerSheet {
                 SessionDrawerContent(

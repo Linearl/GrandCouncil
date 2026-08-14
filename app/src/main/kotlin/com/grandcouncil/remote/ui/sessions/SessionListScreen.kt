@@ -1,6 +1,14 @@
 package com.grandcouncil.remote.ui.sessions
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -8,11 +16,13 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -21,6 +31,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -30,11 +41,18 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.changedToDown
+import androidx.compose.ui.input.pointer.changedToUp
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.grandcouncil.remote.connection.ConnectionProfile
@@ -43,8 +61,10 @@ import com.grandcouncil.remote.model.HeldBy
 import com.grandcouncil.remote.repository.SessionRepository
 import com.grandcouncil.remote.ui.AppPreferences
 import com.grandcouncil.remote.ui.theme.DensityPreset
+import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
+import kotlin.math.roundToInt
 
 /**
  * 会话抽屉栏（rikkahub 式）：设备筛选 + 状态筛选 + 会话列表（日期分组）。
@@ -116,11 +136,14 @@ fun SessionDrawerContent(
                         CircularProgressIndicator()
                     }
 
-                state.error != null && state.filteredSessions.isEmpty() ->
+                state.error != null ->
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(state.error!!, color = MaterialTheme.colorScheme.error)
-                            TextButton(onClick = { viewModel.refresh() }) { Text("重试") }
+                            TextButton(onClick = {
+                                viewModel.clearError()
+                                viewModel.refresh()
+                            }) { Text("重试") }
                         }
                     }
 
@@ -132,15 +155,30 @@ fun SessionDrawerContent(
                         )
                     }
 
-                else -> SessionGroupedList(
-                    sessions = state.filteredSessions,
-                    density = state.density,
-                    multiDevice = state.profiles.size > 1,
-                    favorites = state.favorites,
-                    onOpen = onSelectSession,
-                    onDelete = { viewModel.deleteSession(it) },
-                    onToggleFavorite = { viewModel.toggleFavorite(it) },
-                )
+                else -> {
+                    // 全部设备 → 按项目分组（组头=设备名）；单设备 → 按日期分组
+                    if (state.deviceFilter == null && state.profiles.size > 1) {
+                        ProjectGroupedList(
+                            groups = state.groupedByProject,
+                            density = state.density,
+                            onlineIds = state.serveInfoByProfile.keys,
+                            favorites = state.favorites,
+                            onOpen = onSelectSession,
+                            onDelete = { viewModel.deleteSession(it) },
+                            onToggleFavorite = { viewModel.toggleFavorite(it) },
+                        )
+                    } else {
+                        SessionGroupedList(
+                            sessions = state.filteredSessions,
+                            density = state.density,
+                            multiDevice = state.profiles.size > 1,
+                            favorites = state.favorites,
+                            onOpen = onSelectSession,
+                            onDelete = { viewModel.deleteSession(it) },
+                            onToggleFavorite = { viewModel.toggleFavorite(it) },
+                        )
+                    }
+                }
             }
         }
 
@@ -236,6 +274,49 @@ private fun FilterRow(current: SessionFilter, onSelect: (SessionFilter) -> Unit)
     }
 }
 
+/** 按项目分组的会话列表（组头=设备名+在线状态；左滑删除） */
+@Composable
+private fun ProjectGroupedList(
+    groups: List<Pair<ConnectionProfile, List<AggregatedSession>>>,
+    density: DensityPreset,
+    onlineIds: Set<String>,
+    favorites: Set<String>,
+    onOpen: (AggregatedSession) -> Unit,
+    onDelete: (AggregatedSession) -> Unit,
+    onToggleFavorite: (AggregatedSession) -> Unit,
+) {
+    val vPad = if (density == DensityPreset.COMPACT) 2.dp else 4.dp
+    LazyColumn(Modifier.fillMaxSize()) {
+        groups.forEach { (profile, sessions) ->
+            item(key = "proj-${profile.id}") {
+                Text(
+                    buildString {
+                        append(profile.name)
+                        append(if (profile.id in onlineIds) "  ●在线" else "  ○离线")
+                        append("（${sessions.size}）")
+                    },
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (profile.id in onlineIds) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+            }
+            items(sessions, key = { "${it.profile.id}-${it.session.id}" }) { item ->
+                SessionItem(
+                    item = item,
+                    density = density,
+                    showDevice = false,
+                    isFavorite = "${item.profile.id}:${item.session.id}" in favorites,
+                    modifier = Modifier.padding(vertical = vPad),
+                    onClick = { onOpen(item) },
+                    onDelete = { onDelete(item) },
+                    onToggleFavorite = { onToggleFavorite(item) },
+                )
+            }
+        }
+    }
+}
+
 /** 会话列表（日期分组；多设备时显示设备标签；长按菜单：删除/收藏） */
 @Composable
 private fun SessionGroupedList(
@@ -297,6 +378,108 @@ private fun parseSessionDate(sessionId: String): LocalDate? = runCatching {
     LocalDate.parse(sessionId.take(8), DateTimeFormatter.BASIC_ISO_DATE)
 }.getOrNull()
 
+/**
+ * 左滑露出删除按钮（iOS 风格 swipe reveal，手动手势实现避免框架手势竞争）：
+ * 水平拖动内容层，左滑超阈值吸附露出底层删除按钮；再次点击内容收起；长按弹菜单。
+ */
+@Composable
+private fun SwipeRevealItem(
+    onClick: () -> Unit,
+    onDelete: () -> Unit,
+    onLongClick: () -> Unit = {},
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    val scope = rememberCoroutineScope()
+    val offsetX = remember { Animatable(0f) }
+    val revealPx = with(LocalDensity.current) { 76.dp.toPx() }
+    var revealed by remember { mutableStateOf(false) }
+
+    Box(modifier) {
+        // 底层：删除按钮（右对齐）
+        Box(
+            Modifier
+                .matchParentSize()
+                .background(MaterialTheme.colorScheme.error),
+            contentAlignment = Alignment.CenterEnd,
+        ) {
+            IconButton(onClick = {
+                scope.launch { offsetX.snapTo(0f) }
+                revealed = false
+                onDelete()
+            }) {
+                Icon(
+                    Icons.Filled.Delete,
+                    contentDescription = "删除会话",
+                    tint = MaterialTheme.colorScheme.onError,
+                )
+            }
+        }
+        // 上层：内容（手动手势：拖/点/长按）
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .offset { IntOffset(offsetX.value.roundToInt(), 0) }
+                .pointerInput(Unit) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown()
+                        var dragging = false
+                        var longPressed = false
+                        var lastX = down.position.x
+                        // 长按计时
+                        val longPress = scope.launch {
+                            kotlinx.coroutines.delay(400)
+                            if (!dragging) {
+                                longPressed = true
+                                if (!revealed) onLongClick()
+                            }
+                        }
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull() ?: break
+                            if (change.changedToUp()) break
+                            if (change.changedToDown()) continue
+                            if (change.positionChanged()) {
+                                val dx = change.position.x - lastX
+                                lastX = change.position.x
+                                if (!dragging) {
+                                    // 超过 touch slop 进入拖动模式
+                                    if (kotlin.math.abs(change.position.x - down.position.x) > 20f) {
+                                        dragging = true
+                                        longPress.cancel()
+                                    }
+                                }
+                                if (dragging) {
+                                    change.consume()
+                                    val target = (offsetX.value + dx).coerceIn(-revealPx, 0f)
+                                    android.util.Log.d("SWIPE", "dragging offset=${offsetX.value} dx=$dx")
+                                    scope.launch { offsetX.snapTo(target) }
+                                }
+                            }
+                        }
+                        longPress.cancel()
+                        if (dragging) {
+                            scope.launch {
+                                val target = if (offsetX.value < -revealPx / 2) -revealPx else 0f
+                                offsetX.animateTo(target)
+                                revealed = target != 0f
+                            }
+                        } else if (!longPressed) {
+                            if (revealed) {
+                                scope.launch {
+                                    offsetX.animateTo(0f)
+                                    revealed = false
+                                }
+                            } else {
+                                onClick()
+                            }
+                        }
+                    }
+                },
+        ) { content() }
+    }
+}
+
 @Composable
 private fun SessionItem(
     item: AggregatedSession,
@@ -313,16 +496,15 @@ private fun SessionItem(
     var menuOpen by remember { mutableStateOf(false) }
 
     Box {
-        Card(
+        SwipeRevealItem(
             onClick = onClick,
-            modifier = modifier
-                .fillMaxWidth()
-                .padding(horizontal = hPad)
-                .combinedClickable(
-                    onClick = onClick,
-                    onLongClick = { menuOpen = true },
-                ),
+            onDelete = onDelete,
+            onLongClick = { menuOpen = true },
+            modifier = modifier.fillMaxWidth(),
         ) {
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = hPad),
+            ) {
             Row(
                 Modifier.padding(10.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -376,6 +558,7 @@ private fun SessionItem(
                     onDelete()
                 },
             )
+        }
         }
     }
 }
