@@ -68,18 +68,14 @@ fun MarkdownText(
                     )
                 }
 
-                // 表格行（连续 | 行按等宽原样显示，保持可读）
+                // 表格行（连续 | 行整体交给 MarkdownTable：表头/边框/横滚/行展开）
                 line.startsWith("|") -> {
                     val tableLines = mutableListOf(line)
                     while (i + 1 < lines.size && lines[i + 1].trimStart().startsWith("|")) {
                         tableLines += lines[i + 1]
                         i++
                     }
-                    Text(
-                        tableLines.joinToString("\n"),
-                        style = style.copy(fontFamily = FontFamily.Monospace, fontSize = style.fontSize * 0.9f),
-                        color = color,
-                    )
+                    MarkdownTable(tableLines, modifier = Modifier.padding(vertical = 4.dp))
                 }
 
                 else -> BlockText(line, style, color, null, 1f)

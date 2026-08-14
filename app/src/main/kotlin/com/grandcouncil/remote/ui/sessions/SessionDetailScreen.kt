@@ -5,6 +5,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -16,14 +17,17 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -74,6 +78,8 @@ import com.grandcouncil.remote.agent.AgentAdapterFactory
 import com.grandcouncil.remote.agent.Feature
 import com.grandcouncil.remote.api.dto.ApprovalEventDto
 import com.grandcouncil.remote.connection.ConnectionProfile
+import com.grandcouncil.remote.ui.AppPreferences
+import com.grandcouncil.remote.ui.theme.DensityPreset
 import com.grandcouncil.remote.model.HeldBy
 import com.grandcouncil.remote.model.RemoteMessage
 import com.grandcouncil.remote.model.RemoteSession
@@ -109,6 +115,10 @@ fun SessionDetailScreen(
     var input by remember { mutableStateOf("") }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    // 密度联动（问题二：紧凑模式下工具区更紧凑）
+    val prefs = remember { AppPreferences(context) }
+    var density by remember { mutableStateOf(DensityPreset.COMFORTABLE) }
+    LaunchedEffect(Unit) { prefs.density.collect { density = it } }
     // T5 发送失败恢复输入框文本
     LaunchedEffect(state.restoreInput) {
         state.restoreInput?.let { restored ->
@@ -124,14 +134,26 @@ fun SessionDetailScreen(
     // 每次进入（会话切换/组合重建）强制重新加载，避免旧快照/残留流式状态
     LaunchedEffect(session?.id) { viewModel.load() }
 
-    // 新消息/流式变化时自动滚到底（P0-4：仅当用户当前位于底部附近才跟随，
-    // 用户上翻查看时不抢滚动；等价于 rikkahub 规格「生成中且用户位于底部 → 持续跟随」）
-    LaunchedEffect(state.messages.size, state.streaming?.text?.length, state.streaming?.tools?.size) {
-        kotlinx.coroutines.delay(120)
-        val count = state.messages.size + if (state.streaming != null) 1 else 0
+    // 工作中滚动展示（问题三）：生成中（streaming != null）且用户未上翻
+    // （距底 < 2 屏）→ 瞬时 scrollToItem 持续跟随；上翻暂停、回底恢复；
+    // 生成结束时（streaming 变 null）不强制拉回
+    LaunchedEffect(
+        state.messages.size,
+        state.streaming?.text?.length,
+        state.streaming?.tools?.size,
+        state.streaming?.reasoning?.length,
+    ) {
+        val streaming = state.streaming
+        val count = state.messages.size + if (streaming != null) 1 else 0
         if (count <= 0) return@LaunchedEffect
-        val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
-        if (lastVisible >= count - 2) listState.animateScrollToItem(count - 1)
+        kotlinx.coroutines.delay(80)
+        val info = listState.layoutInfo
+        val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: -1
+        val visibleCount = info.visibleItemsInfo.size.coerceAtLeast(1)
+        val farFromBottom = count - 1 - lastVisible > visibleCount * 2
+        if (!farFromBottom && streaming != null) {
+            listState.scrollToItem(count - 1)
+        }
     }
 
     Scaffold(
@@ -329,7 +351,7 @@ fun SessionDetailScreen(
                         state.streaming?.let { streaming ->
                             if (!streaming.isEmpty) {
                                 item(key = "streaming") {
-                                    StreamingItem(streaming)
+                                    StreamingItem(streaming, density)
                                 }
                             }
                         }
@@ -588,11 +610,26 @@ private fun MessageItem(message: RemoteMessage) {
                 ) {
                     Column(Modifier.padding(12.dp)) {
                         if (!isUser && !message.reasoning.isNullOrBlank()) {
+                            // 推理摘要：默认首行 80 字，点击展开完整推理（复用 StreamingItem 交互）
+                            var reasonExpanded by remember { mutableStateOf(false) }
                             Text(
-                                "🤔 " + message.reasoning.trim().lineSequence().first().take(80),
+                                buildString {
+                                    append("🤔 ")
+                                    if (reasonExpanded) {
+                                        append(message.reasoning.trim())
+                                    } else {
+                                        append(message.reasoning.trim().lineSequence().first().take(80))
+                                        if (message.reasoning.trim().length > 80) append("…")
+                                    }
+                                },
                                 style = MaterialTheme.typography.labelSmall,
                                 color = if (isUser) MaterialTheme.colorScheme.onPrimary
                                 else MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = if (reasonExpanded) Int.MAX_VALUE else 2,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier
+                                    .clickable { reasonExpanded = !reasonExpanded }
+                                    .padding(vertical = 2.dp),
                             )
                             HorizontalDivider(Modifier.padding(vertical = 4.dp))
                         }
@@ -632,10 +669,11 @@ private fun MessageItem(message: RemoteMessage) {
     }
 }
 
-/** 流式中的 assistant 消息（推理折叠 + 文本 + 工具卡片） */
+/** 流式中的 assistant 消息（推理折叠 + 文本 + 工具卡片；推理头部紧凑 labelSmall） */
 @Composable
-private fun StreamingItem(streaming: StreamingMessage) {
+private fun StreamingItem(streaming: StreamingMessage, density: DensityPreset = DensityPreset.COMFORTABLE) {
     var reasoningExpanded by remember { mutableStateOf(false) }
+    val compact = density == DensityPreset.COMPACT
     Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         if (streaming.reasoning.isNotEmpty()) {
             Surface(
@@ -643,25 +681,36 @@ private fun StreamingItem(streaming: StreamingMessage) {
                 shape = MaterialTheme.shapes.medium,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Column(Modifier.padding(10.dp)) {
+                Column(Modifier.padding(horizontal = 8.dp, vertical = 2.dp)) {
                     Row(
                         Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
                             "💡 推理过程",
-                            style = MaterialTheme.typography.labelMedium,
+                            style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.weight(1f),
                         )
-                        TextButton(onClick = { reasoningExpanded = !reasoningExpanded }) {
-                            Text(if (reasoningExpanded) "收起" else "展开")
-                        }
+                        Text(
+                            if (reasoningExpanded) "▴ 收起" else "▾ 展开",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier
+                                .clickable { reasoningExpanded = !reasoningExpanded }
+                                .padding(4.dp),
+                        )
                     }
                     if (reasoningExpanded) {
+                        // 展开限高 240dp + 内部滚动，避免长推理撑爆一屏
                         Text(
                             streaming.reasoning,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier
+                                .heightIn(max = 240.dp)
+                                .verticalScroll(rememberScrollState())
+                                .padding(top = 2.dp, bottom = 4.dp),
                         )
                     }
                 }
@@ -676,6 +725,7 @@ private fun StreamingItem(streaming: StreamingMessage) {
                 error = tool.error,
                 durationMs = tool.durationMs,
                 status = tool.status,
+                density = density,
             )
         }
         if (streaming.text.isNotEmpty()) {
@@ -695,7 +745,7 @@ private fun StreamingItem(streaming: StreamingMessage) {
     }
 }
 
-/** 工具卡片（状态色：运行=琥珀 spinner / 完成=绿 / 错误=红） */
+/** 工具卡片（紧凑版：labelSmall 工具名 + 图标折叠 + 限高内滚；状态色：运行=琥珀/完成=绿/错误=红） */
 @Composable
 private fun ToolCard(
     id: String,
@@ -705,8 +755,10 @@ private fun ToolCard(
     error: String,
     durationMs: Long,
     status: ToolCallStatus,
+    density: DensityPreset = DensityPreset.COMFORTABLE,
 ) {
     var expanded by remember { mutableStateOf(false) }
+    val compact = density == DensityPreset.COMPACT
     val statusColor = when {
         error.isNotEmpty() -> ReasonixColors.err
         status == ToolCallStatus.RUNNING -> ReasonixColors.warn
@@ -717,7 +769,7 @@ private fun ToolCard(
         shape = MaterialTheme.shapes.medium,
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Column(Modifier.padding(10.dp)) {
+        Column(Modifier.padding(horizontal = 8.dp, vertical = if (compact) 2.dp else 4.dp)) {
             Row(
                 Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -733,47 +785,65 @@ private fun ToolCard(
                 }
                 Text(
                     name,
-                    style = MaterialTheme.typography.labelLarge,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (error.isNotEmpty()) ReasonixColors.err else MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
-                if (durationMs > 0) {
+                if (durationMs > 0 && !compact) {
                     Text(
                         "${durationMs / 1000.0}s",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(end = 4.dp),
                     )
                 }
-                TextButton(onClick = { expanded = !expanded }) {
-                    Text(if (expanded) "收起" else "详情")
-                }
+                Text(
+                    if (expanded) "▴ 收起" else "▾ 详情",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (error.isNotEmpty()) ReasonixColors.err else MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .clickable { expanded = !expanded }
+                        .padding(4.dp),
+                )
             }
             if (expanded) {
-                Text(
-                    args,
-                    style = MaterialTheme.typography.bodySmall,
-                    fontFamily = FontFamily.Monospace,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 4,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                if (output.isNotEmpty()) {
-                    HorizontalDivider(Modifier.padding(vertical = 6.dp))
-                    Text(
-                        output.take(500),
-                        style = MaterialTheme.typography.bodySmall,
-                        fontFamily = FontFamily.Monospace,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 8,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                if (error.isNotEmpty()) {
-                    HorizontalDivider(Modifier.padding(vertical = 6.dp))
-                    Text(
-                        "✗ $error",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = ReasonixColors.err,
-                    )
+                // 展开限高 200dp + 内部滚动，避免长输出撑屏
+                Column(
+                    Modifier
+                        .heightIn(max = 200.dp)
+                        .verticalScroll(rememberScrollState()),
+                ) {
+                    if (args.isNotBlank()) {
+                        Text(
+                            args,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = FontFamily.Monospace,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 4,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    if (output.isNotEmpty()) {
+                        HorizontalDivider(Modifier.padding(vertical = 4.dp))
+                        Text(
+                            output.take(500),
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = FontFamily.Monospace,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 8,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    if (error.isNotEmpty()) {
+                        HorizontalDivider(Modifier.padding(vertical = 4.dp))
+                        Text(
+                            "✗ $error",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = ReasonixColors.err,
+                        )
+                    }
                 }
             }
         }
