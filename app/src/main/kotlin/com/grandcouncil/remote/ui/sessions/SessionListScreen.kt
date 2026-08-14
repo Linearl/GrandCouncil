@@ -401,7 +401,8 @@ private fun SwipeRevealItem(
     val revealPx = with(LocalDensity.current) { 132.dp.toPx() }
     var activated by remember { mutableStateOf(false) }
     var revealed by remember { mutableStateOf(false) }
-    val longPressMillis = 1000L
+    // 长按 400ms 激活（用户调整：1s 体感太长）
+    val longPressMillis = 400L
     // 按钮点击后收起
     val close = {
         scope.launch { offsetX.animateTo(0f) }
