@@ -1,6 +1,7 @@
 package com.grandcouncil.remote.api
 
 import com.grandcouncil.remote.api.dto.HistoryMessageDto
+import com.grandcouncil.remote.api.dto.ModelEntryDto
 import com.grandcouncil.remote.api.dto.SessionEntryDto
 import com.grandcouncil.remote.api.dto.StatusDto
 import kotlinx.serialization.json.JsonObject
@@ -27,9 +28,9 @@ interface ReasonixApi {
 
     /** GET /sessions/{id} — Web UI 页面（原生 App 用 /history，见下） */
 
-    /** POST /new — 新建会话（M2） */
+    /** POST /new — 新建会话（返回 204 无 body；空 body 确保 application/json Content-Type，serve CSRF 守卫要求） */
     @POST("new")
-    suspend fun newSession(): JsonObject
+    suspend fun newSession(@Body body: JsonObject = JsonObject(emptyMap())): Unit
 
     /** POST /delete-session — 删除会话（M2，需确认弹窗） */
     @POST("delete-session")
@@ -84,7 +85,11 @@ interface ReasonixApi {
     @POST("tool-approval-mode")
     suspend fun toolApprovalMode(@Body body: JsonObject): Unit
 
-    /** GET /models — 模型列表（M3） */
+    /** POST /plan — plan 模式开关（执行-规划双模型；body: {"on": bool}） */
+    @POST("plan")
+    suspend fun plan(@Body body: JsonObject): Unit
+
+    /** GET /models — 模型列表（ref/kind/active/default） */
     @GET("models")
-    suspend fun models(): JsonObject
+    suspend fun models(): List<ModelEntryDto>
 }

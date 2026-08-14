@@ -64,7 +64,7 @@ import com.grandcouncil.remote.ui.theme.ReasonixColors
 @Composable
 fun SessionDetailScreen(
     profile: ConnectionProfile,
-    session: RemoteSession,
+    session: RemoteSession?,
     modifier: Modifier = Modifier,
     viewModel: SessionDetailViewModel = viewModel(
         factory = SessionDetailViewModelFactory(
@@ -72,7 +72,7 @@ fun SessionDetailScreen(
             session = session,
             appContext = LocalContext.current.applicationContext,
         ),
-        key = "detail-${session.id}",
+        key = "detail-${session?.id ?: "draft"}",
     ),
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -80,7 +80,7 @@ fun SessionDetailScreen(
     val listState = rememberLazyListState()
 
     // 每次进入（会话切换/组合重建）强制重新加载，避免旧快照/残留流式状态
-    LaunchedEffect(session.id) { viewModel.load() }
+    LaunchedEffect(session?.id) { viewModel.load() }
 
     // 新消息/流式变化时自动滚到底（首帧后执行，避免未布局时滚动异常）
     LaunchedEffect(state.messages.size, state.streaming?.text?.length, state.streaming?.tools?.size) {
@@ -94,10 +94,10 @@ fun SessionDetailScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Text(session.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(session?.title ?: "新会话", maxLines = 1, overflow = TextOverflow.Ellipsis)
                 },
                 actions = {
-                    if (session.heldBy == HeldBy.OTHER) {
+                    if (session?.heldBy == HeldBy.OTHER) {
                         Text(
                             "🔒 只读",
                             style = MaterialTheme.typography.labelSmall,
@@ -106,7 +106,7 @@ fun SessionDetailScreen(
                         )
                     }
                     // 只读标记保留在顶栏
-                    if (session.heldBy == HeldBy.OTHER) {
+                    if (session?.heldBy == HeldBy.OTHER) {
                         Text(
                             "🔒 只读",
                             style = MaterialTheme.typography.labelSmall,
@@ -138,7 +138,7 @@ fun SessionDetailScreen(
                 InputBar(
                     input = input,
                     running = state.running,
-                    readOnly = session.heldBy == HeldBy.OTHER,
+                    readOnly = session?.heldBy == HeldBy.OTHER,
                     onInput = { input = it },
                     onSend = {
                         viewModel.send(input)
@@ -150,7 +150,7 @@ fun SessionDetailScreen(
         },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
-            if (session.heldBy == HeldBy.OTHER) {
+            if (session?.heldBy == HeldBy.OTHER) {
                 Surface(
                     color = MaterialTheme.colorScheme.secondaryContainer,
                     modifier = Modifier.fillMaxWidth(),
@@ -601,7 +601,7 @@ private fun ApprovalModeMenu(
 /** ViewModel 工厂（携带 profile/session 参数） */
 class SessionDetailViewModelFactory(
     private val profile: ConnectionProfile,
-    private val session: RemoteSession,
+    private val session: RemoteSession?,
     private val appContext: android.content.Context,
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")

@@ -103,3 +103,14 @@ object ServeEventKind {
     const val ASK_REQUEST = "ask_request"
     const val TURN_DONE = "turn_done"
 }
+
+/** GET /models 响应元素（serve.go:1258 modelEntry） */
+@Serializable
+data class ModelEntryDto(
+    val ref: String = "",
+    val provider: String = "",
+    val model: String = "",
+    val kind: String? = null,
+    val active: Boolean = false,
+    val default: Boolean = false,
+)

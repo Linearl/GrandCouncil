@@ -64,7 +64,7 @@ enum class ApprovalMode(val wire: String, val label: String) {
 
 class SessionDetailViewModel(
     private val profile: ConnectionProfile,
-    private val session: RemoteSession,
+    private val session: RemoteSession?,
     private val repository: SessionRepository,
     private val sseClient: SseClient = SseClient.forProfile(profile),
 ) : ViewModel() {
@@ -80,6 +80,10 @@ class SessionDetailViewModel(
     fun load() {
         viewModelScope.launch {
             _uiState.value = SessionDetailUiState(loading = true)
+            if (session == null) {
+                // 草稿模式（新建会话）：无历史，直接就绪
+                _uiState.value = _uiState.value.copy(loading = false)
+            } else {
             repository.loadHistory(profile, session).fold(
                 onSuccess = { messages ->
                     // 历史消息无稳定 id（content.hashCode 会重复）——index 化保证 LazyColumn key 唯一
@@ -103,6 +107,7 @@ class SessionDetailViewModel(
                 _uiState.value = _uiState.value.copy(
                     approvalMode = status.toolApprovalMode ?: ApprovalMode.ASK.wire,
                 )
+            }
             }
         }
     }

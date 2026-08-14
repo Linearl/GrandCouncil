@@ -2,6 +2,7 @@ package com.grandcouncil.remote.repository
 
 import com.grandcouncil.remote.agent.AgentAdapterFactory
 import com.grandcouncil.remote.api.HttpClientFactory
+import com.grandcouncil.remote.api.dto.ModelEntryDto
 import com.grandcouncil.remote.api.dto.StatusDto
 import com.grandcouncil.remote.connection.ConnectionProfile
 import com.grandcouncil.remote.model.RemoteMessage
@@ -68,6 +69,50 @@ class SessionRepository {
             runCatching {
                 HttpClientFactory.createApi(profile).toolApprovalMode(
                     buildJsonObject { put("mode", JsonPrimitive(mode)) },
+                )
+            }.map { }
+        }
+
+    /** 新建会话（POST /new，204） */
+    suspend fun newSession(profile: ConnectionProfile): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                HttpClientFactory.createApi(profile).newSession()
+            }.map { }
+        }
+
+    /** 删除会话（body: {"name": "<会话名不带 .jsonl>"}，源码确认） */
+    suspend fun deleteSession(profile: ConnectionProfile, name: String): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                HttpClientFactory.createApi(profile).deleteSession(
+                    buildJsonObject { put("name", JsonPrimitive(name)) },
+                )
+            }.map { }
+        }
+
+    /** plan 模式开关（执行-规划双模型） */
+    suspend fun setPlanMode(profile: ConnectionProfile, on: Boolean): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                HttpClientFactory.createApi(profile).plan(
+                    buildJsonObject { put("on", JsonPrimitive(on)) },
+                )
+            }.map { }
+        }
+
+    /** 模型列表（GET /models） */
+    suspend fun models(profile: ConnectionProfile): Result<List<ModelEntryDto>> =
+        withContext(Dispatchers.IO) {
+            runCatching { HttpClientFactory.createApi(profile).models() }
+        }
+
+    /** 切换模型（serve 拦截 submit 的 /model <ref> 斜杠命令） */
+    suspend fun switchModel(profile: ConnectionProfile, ref: String): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                HttpClientFactory.createApi(profile).submit(
+                    buildJsonObject { put("input", JsonPrimitive("/model $ref")) },
                 )
             }.map { }
         }

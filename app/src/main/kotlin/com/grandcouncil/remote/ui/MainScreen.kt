@@ -29,6 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.grandcouncil.remote.ui.config.ConfigScreen
+import com.grandcouncil.remote.connection.ConnectionProfile
 import com.grandcouncil.remote.ui.sessions.AggregatedSession
 import com.grandcouncil.remote.ui.sessions.SessionDetailScreen
 import com.grandcouncil.remote.ui.sessions.SessionDrawerContent
@@ -49,6 +50,8 @@ fun MainScreen() {
     val scope = rememberCoroutineScope()
     var section by remember { mutableStateOf(MainSection.CHAT) }
     var selectedSession by remember { mutableStateOf<AggregatedSession?>(null) }
+    // 草稿聊天（新建会话后进入空白聊天，session=null）
+    var draftProfile by remember { mutableStateOf<ConnectionProfile?>(null) }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -57,6 +60,7 @@ fun MainScreen() {
                 SessionDrawerContent(
                     onSelectSession = {
                         selectedSession = it
+                        draftProfile = null
                         section = MainSection.CHAT
                         scope.launch { drawerState.close() }
                     },
@@ -66,6 +70,12 @@ fun MainScreen() {
                     },
                     onOpenWizard = {
                         section = MainSection.WIZARD
+                        scope.launch { drawerState.close() }
+                    },
+                    onNewSessionCreated = { profile ->
+                        selectedSession = null
+                        draftProfile = profile
+                        section = MainSection.CHAT
                         scope.launch { drawerState.close() }
                     },
                 )
@@ -97,14 +107,21 @@ fun MainScreen() {
             when (section) {
                 MainSection.CHAT -> {
                     val selected = selectedSession
-                    if (selected != null) {
-                        SessionDetailScreen(
+                    val draft = draftProfile
+                    when {
+                        selected != null -> SessionDetailScreen(
                             profile = selected.profile,
                             session = selected.session,
                             modifier = Modifier.padding(padding),
                         )
-                    } else {
-                        ChatEmptyHint(Modifier.padding(padding))
+
+                        draft != null -> SessionDetailScreen(
+                            profile = draft,
+                            session = null,
+                            modifier = Modifier.padding(padding),
+                        )
+
+                        else -> ChatEmptyHint(Modifier.padding(padding))
                     }
                 }
 

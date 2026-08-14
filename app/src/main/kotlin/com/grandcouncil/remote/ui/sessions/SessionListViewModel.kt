@@ -23,6 +23,7 @@ enum class SessionFilter(val label: String) {
     RUNNING("运行中"),
     PENDING("待审批"),
     FAILED("失败"),
+    FAVORITES("已收藏"),
 }
 
 /** 服务器状态信息（连接维度） */
@@ -48,6 +49,10 @@ data class SessionListUiState(
     /** 设备筛选：null=全部设备，否则 profileId */
     val deviceFilter: String? = null,
     val filter: SessionFilter = SessionFilter.ALL,
+    /** 搜索关键词（标题过滤） */
+    val searchQuery: String = "",
+    /** 本地收藏（标签）：sessionKey（profileId:sessionId）集合 */
+    val favorites: Set<String> = emptySet(),
     val density: DensityPreset = DensityPreset.COMFORTABLE,
     val loading: Boolean = false,
     val error: String? = null,
@@ -64,13 +69,21 @@ data class SessionListUiState(
         get() = if (deviceFilter == null) aggregated
         else aggregated.filter { it.profile.id == deviceFilter }
 
-    /** 应用状态筛选后的会话 */
+    /** 应用状态筛选 + 搜索 + 收藏后的会话 */
     val filteredSessions: List<AggregatedSession>
-        get() = when (filter) {
-            SessionFilter.ALL -> filteredByDevice
-            SessionFilter.RUNNING -> filteredByDevice.filter { it.session.isCurrent }
-            SessionFilter.PENDING -> filteredByDevice.filter { it.session.heldBy == HeldBy.ME }
-            SessionFilter.FAILED -> emptyList()
+        get() {
+            val query = searchQuery.trim()
+            var list = filteredByDevice
+            if (query.isNotEmpty()) {
+                list = list.filter { it.session.title.contains(query, ignoreCase = true) }
+            }
+            return when (filter) {
+                SessionFilter.ALL -> list
+                SessionFilter.RUNNING -> list.filter { it.session.isCurrent }
+                SessionFilter.PENDING -> list.filter { it.session.heldBy == HeldBy.ME }
+                SessionFilter.FAILED -> emptyList()
+                SessionFilter.FAVORITES -> list.filter { "${it.profile.id}:${it.session.id}" in favorites }
+            }
         }
 
     /** 在线设备数（服务器信息已加载的） */
@@ -80,6 +93,7 @@ data class SessionListUiState(
 class SessionListViewModel(
     private val connectionStore: ConnectionStore,
     private val repository: SessionRepository,
+    private val labelsStore: SessionLabelsStore,
     appPreferences: AppPreferences,
 ) : ViewModel() {
 
@@ -90,6 +104,11 @@ class SessionListViewModel(
         viewModelScope.launch {
             appPreferences.density.collect { density ->
                 _uiState.value = _uiState.value.copy(density = density)
+            }
+        }
+        viewModelScope.launch {
+            labelsStore.favorites.collect { favorites ->
+                _uiState.value = _uiState.value.copy(favorites = favorites)
             }
         }
         viewModelScope.launch {
@@ -118,6 +137,40 @@ class SessionListViewModel(
 
     fun setFilter(filter: SessionFilter) {
         _uiState.value = _uiState.value.copy(filter = filter)
+    }
+
+    fun setSearchQuery(query: String) {
+        _uiState.value = _uiState.value.copy(searchQuery = query)
+    }
+
+    /** 新建会话（目标：设备筛选中选中的设备，否则第一个连接）；成功回调进入草稿聊天 */
+    fun newSession(onCreated: (ConnectionProfile) -> Unit = {}) {
+        val profiles = _uiState.value.profiles
+        val target = _uiState.value.deviceFilter
+            ?.let { id -> profiles.firstOrNull { it.id == id } }
+            ?: profiles.firstOrNull() ?: return
+        viewModelScope.launch {
+            repository.newSession(target).onSuccess {
+                refresh()
+                onCreated(target)
+            }
+        }
+    }
+
+    /** 删除会话（serve POST /delete-session，name 即 session.id）→ 刷新 */
+    fun deleteSession(item: AggregatedSession) {
+        viewModelScope.launch {
+            repository.deleteSession(item.profile, item.session.id).onSuccess { refresh() }
+        }
+    }
+
+    /** 本地收藏/取消收藏（B3） */
+    fun toggleFavorite(item: AggregatedSession) {
+        val key = "${item.profile.id}:${item.session.id}"
+        val current = _uiState.value.favorites
+        viewModelScope.launch {
+            labelsStore.setFavorite(key, key !in current)
+        }
     }
 
     /** 聚合刷新：并发拉取全部连接的会话 + 服务器信息 */

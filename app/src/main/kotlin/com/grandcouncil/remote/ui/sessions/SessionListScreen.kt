@@ -1,5 +1,6 @@
 package com.grandcouncil.remote.ui.sessions
 
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -54,6 +55,7 @@ fun SessionDrawerContent(
     onSelectSession: (AggregatedSession) -> Unit,
     onOpenConfig: () -> Unit,
     onOpenWizard: () -> Unit,
+    onNewSessionCreated: (ConnectionProfile) -> Unit = {},
     viewModel: SessionListViewModel = viewModel(
         factory = SessionListViewModelFactory(LocalContext.current.applicationContext),
     ),
@@ -65,7 +67,7 @@ fun SessionDrawerContent(
     LaunchedEffect(Unit) { viewModel.refresh() }
 
     Column(Modifier.fillMaxSize()) {
-        // 顶部：设备选择器
+        // 顶部：设备选择器 + 新建会话
         DeviceSelector(
             profiles = state.profiles,
             selectedId = state.deviceFilter,
@@ -76,6 +78,15 @@ fun SessionDrawerContent(
                 deviceMenuOpen = false
                 viewModel.setDeviceFilter(it)
             },
+            onNewSession = { viewModel.newSession { profile -> onNewSessionCreated(profile) } },
+        )
+        // 搜索框（A2）
+        androidx.compose.material3.OutlinedTextField(
+            value = state.searchQuery,
+            onValueChange = { viewModel.setSearchQuery(it) },
+            placeholder = { Text("搜索会话…") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp),
         )
         // 状态筛选
         FilterRow(
@@ -125,7 +136,10 @@ fun SessionDrawerContent(
                     sessions = state.filteredSessions,
                     density = state.density,
                     multiDevice = state.profiles.size > 1,
+                    favorites = state.favorites,
                     onOpen = onSelectSession,
+                    onDelete = { viewModel.deleteSession(it) },
+                    onToggleFavorite = { viewModel.toggleFavorite(it) },
                 )
             }
         }
@@ -143,7 +157,7 @@ fun SessionDrawerContent(
     }
 }
 
-/** 设备筛选选择器（全部设备 + 各连接；在线状态点） */
+/** 设备筛选选择器（全部设备 + 各连接；在线状态点；右侧新建按钮） */
 @Composable
 private fun DeviceSelector(
     profiles: List<ConnectionProfile>,
@@ -152,6 +166,7 @@ private fun DeviceSelector(
     expanded: Boolean,
     onToggle: () -> Unit,
     onSelect: (String?) -> Unit,
+    onNewSession: () -> Unit,
 ) {
     Box(Modifier.fillMaxWidth()) {
         Card(
@@ -171,10 +186,17 @@ private fun DeviceSelector(
                         else -> profiles.firstOrNull { it.id == selectedId }?.name ?: "选择设备"
                     },
                     style = MaterialTheme.typography.titleSmall,
-                    modifier = Modifier.padding(horizontal = 8.dp),
+                    modifier = Modifier.padding(horizontal = 8.dp).weight(1f),
                 )
                 Text("▾", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+        }
+        // 新建会话按钮（A1：顶栏标题区 New Chat 对齐）
+        TextButton(
+            onClick = onNewSession,
+            modifier = Modifier.align(Alignment.CenterEnd).padding(end = 16.dp),
+        ) {
+            Text("＋ 新建", style = MaterialTheme.typography.labelMedium)
         }
         DropdownMenu(expanded = expanded, onDismissRequest = onToggle) {
             DropdownMenuItem(
@@ -214,13 +236,16 @@ private fun FilterRow(current: SessionFilter, onSelect: (SessionFilter) -> Unit)
     }
 }
 
-/** 会话列表（日期分组；多设备时显示设备标签） */
+/** 会话列表（日期分组；多设备时显示设备标签；长按菜单：删除/收藏） */
 @Composable
 private fun SessionGroupedList(
     sessions: List<AggregatedSession>,
     density: DensityPreset,
     multiDevice: Boolean,
+    favorites: Set<String>,
     onOpen: (AggregatedSession) -> Unit,
+    onDelete: (AggregatedSession) -> Unit,
+    onToggleFavorite: (AggregatedSession) -> Unit,
 ) {
     val grouped = remember(sessions) { groupByDay(sessions) }
     val vPad = if (density == DensityPreset.COMPACT) 2.dp else 4.dp
@@ -240,8 +265,11 @@ private fun SessionGroupedList(
                     item = item,
                     density = density,
                     showDevice = multiDevice,
+                    isFavorite = "${item.profile.id}:${item.session.id}" in favorites,
                     modifier = Modifier.padding(vertical = vPad),
                     onClick = { onOpen(item) },
+                    onDelete = { onDelete(item) },
+                    onToggleFavorite = { onToggleFavorite(item) },
                 )
             }
         }
@@ -274,50 +302,85 @@ private fun SessionItem(
     item: AggregatedSession,
     density: DensityPreset,
     showDevice: Boolean,
+    isFavorite: Boolean,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
+    onDelete: () -> Unit,
+    onToggleFavorite: () -> Unit,
 ) {
     val session = item.session
     val hPad = if (density == DensityPreset.COMPACT) 8.dp else 12.dp
-    Card(
-        onClick = onClick,
-        modifier = modifier.fillMaxWidth().padding(horizontal = hPad),
-    ) {
-        Row(
-            Modifier.fillMaxWidth().padding(10.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
+    var menuOpen by remember { mutableStateOf(false) }
+
+    Box {
+        Card(
+            onClick = onClick,
+            modifier = modifier
+                .fillMaxWidth()
+                .padding(horizontal = hPad)
+                .combinedClickable(
+                    onClick = onClick,
+                    onLongClick = { menuOpen = true },
+                ),
         ) {
-            Column(Modifier.weight(1f)) {
-                Text(
-                    session.title,
-                    style = if (density == DensityPreset.COMPACT) MaterialTheme.typography.bodyMedium
-                    else MaterialTheme.typography.titleSmall,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    buildString {
-                        if (showDevice) append("${item.profile.name} · ")
-                        append("${session.turns} 轮")
-                        if (session.isCurrent) append(" · 当前")
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            Row(
+                Modifier.padding(10.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        session.title,
+                        style = if (density == DensityPreset.COMPACT) MaterialTheme.typography.bodyMedium
+                        else MaterialTheme.typography.titleSmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        buildString {
+                            if (showDevice) append("${item.profile.name} · ")
+                            append("${session.turns} 轮")
+                            if (session.isCurrent) append(" · 当前")
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (isFavorite) {
+                        Text("★", color = MaterialTheme.colorScheme.tertiary)
+                    }
+                    if (session.heldBy == HeldBy.OTHER) {
+                        Icon(
+                            Icons.Filled.Lock,
+                            contentDescription = "只读",
+                            tint = MaterialTheme.colorScheme.tertiary,
+                            modifier = Modifier.padding(start = 4.dp),
+                        )
+                    }
+                }
             }
-            if (session.heldBy == HeldBy.OTHER) {
-                Icon(
-                    Icons.Filled.Lock,
-                    contentDescription = "只读",
-                    tint = MaterialTheme.colorScheme.tertiary,
-                )
-            }
+        }
+        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+            DropdownMenuItem(
+                text = { Text(if (isFavorite) "取消收藏" else "收藏") },
+                onClick = {
+                    menuOpen = false
+                    onToggleFavorite()
+                },
+            )
+            DropdownMenuItem(
+                text = { Text("删除", color = MaterialTheme.colorScheme.error) },
+                onClick = {
+                    menuOpen = false
+                    onDelete()
+                },
+            )
         }
     }
 }
 
-/** ViewModel 工厂：注入 ConnectionStore/SessionRepository/AppPreferences */
+/** ViewModel 工厂：注入 ConnectionStore/SessionRepository/SessionLabelsStore/AppPreferences */
 class SessionListViewModelFactory(private val appContext: android.content.Context) :
     androidx.lifecycle.ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
@@ -325,6 +388,7 @@ class SessionListViewModelFactory(private val appContext: android.content.Contex
         return SessionListViewModel(
             ConnectionStore(appContext),
             SessionRepository(),
+            SessionLabelsStore(appContext),
             AppPreferences(appContext),
         ) as T
     }
