@@ -66,6 +66,10 @@ data class SessionDetailUiState(
     val effortLevel: String = "auto",
     /** serve 拒绝 /effort（不支持）→ 思考按钮置灰 */
     val effortUnsupported: Boolean = false,
+    /** 右上角「新建对话」进行中（POST /new 等待） */
+    val newSessionBusy: Boolean = false,
+    /** 发送后排队提示（§1.3：submit 后 3-5s 无事件） */
+    val queued: Boolean = false,
 )
 
 /** 审批模式三档（对应 serve ask/auto/yolo） */
@@ -169,6 +173,10 @@ class SessionDetailViewModel(
             while (true) {
                 try {
                     sseClient.events(SseClient.eventsUrl(profile)).collect { event ->
+                        // 任何事件到达 → 清除排队提示
+                        if (_uiState.value.queued) {
+                            _uiState.value = _uiState.value.copy(queued = false)
+                        }
                         when (event.kind) {
                     ServeEventKind.TURN_STARTED -> {
                         _uiState.value = _uiState.value.copy(
@@ -352,6 +360,18 @@ class SessionDetailViewModel(
                     streaming = _uiState.value.streaming ?: StreamingMessage(),
                     running = true,
                 )
+                // 排队提示（§1.3）：4s 内无任何 SSE 事件 → 显示「排队中（服务正忙）…」
+                viewModelScope.launch {
+                    kotlinx.coroutines.delay(4000)
+                    if (_uiState.value.running && _uiState.value.streaming?.isEmpty == true &&
+                        _uiState.value.statusText != "开始处理…"
+                    ) {
+                        _uiState.value = _uiState.value.copy(
+                            statusText = "排队中（服务正忙）…",
+                            queued = true,
+                        )
+                    }
+                }
             }.onFailure { e ->
                 // 失败：移除乐观消息 + 恢复输入框文本（UI 收到 restoreInput 后回填）
                 _uiState.value = _uiState.value.copy(
@@ -367,6 +387,42 @@ class SessionDetailViewModel(
     fun setWebSearch(enabled: Boolean) {
         viewModelScope.launch { prefs.setWebSearch(enabled) }
         _uiState.value = _uiState.value.copy(webSearchEnabled = enabled)
+    }
+
+    /**
+     * 右上角「新建对话」（对标 rikkahub New Message）：POST /new 创建空会话。
+     * serve 忙碌时 500 → 提示 + 轮询 status 至空闲后自动重试（§1.3）。
+     */
+    fun newSession(onDone: () -> Unit) {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(newSessionBusy = true)
+            val result = repository.newSession(profile)
+            if (result.isSuccess) {
+                _uiState.value = _uiState.value.copy(newSessionBusy = false)
+                onDone()
+                return@launch
+            }
+            // 失败：忙碌（500）→ 提示 + 轮询重试（最多 3 次，间隔 2s）
+            _uiState.value = _uiState.value.copy(
+                newSessionBusy = false,
+                statusText = "当前服务正在处理其他任务，等待重试…",
+            )
+            repeat(3) {
+                kotlinx.coroutines.delay(2000)
+                val status = repository.getStatus(profile).getOrNull()
+                if (status?.running == false) {
+                    val retry = repository.newSession(profile)
+                    if (retry.isSuccess) {
+                        _uiState.value = _uiState.value.copy(statusText = "")
+                        onDone()
+                        return@launch
+                    }
+                }
+            }
+            _uiState.value = _uiState.value.copy(
+                statusText = "新建会话失败：服务持续繁忙，请稍后再试",
+            )
+        }
     }
 
     /** 思考档位切换（§3.2，DataStore 持久化；发送时经 /effort 命令生效） */

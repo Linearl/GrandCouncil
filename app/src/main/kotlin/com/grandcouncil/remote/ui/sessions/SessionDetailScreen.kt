@@ -1,8 +1,12 @@
 package com.grandcouncil.remote.ui.sessions
 
+import android.content.Context
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -13,8 +17,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -31,6 +36,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -38,6 +44,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -49,9 +57,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -74,11 +84,14 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
@@ -101,10 +114,12 @@ import com.grandcouncil.remote.ui.components.ProcessCard
 import com.grandcouncil.remote.ui.components.ProcessStep
 import com.grandcouncil.remote.ui.components.ReasoningProcessStep
 import com.grandcouncil.remote.ui.components.ToolProcessStep
+import com.grandcouncil.remote.ui.components.MessageTts
 import com.grandcouncil.remote.ui.export.SessionExporter
 import kotlinx.coroutines.launch
 import com.grandcouncil.remote.repository.SessionRepository
 import com.grandcouncil.remote.ui.theme.ReasonixColors
+import kotlin.math.roundToInt
 
 /**
  * 会话详情（P0-2 聊天页）：
@@ -117,6 +132,7 @@ fun SessionDetailScreen(
     profile: ConnectionProfile,
     session: RemoteSession?,
     modifier: Modifier = Modifier,
+    onNewChat: () -> Unit = {},
     viewModel: SessionDetailViewModel = viewModel(
         factory = SessionDetailViewModelFactory(
             profile = profile,
@@ -128,8 +144,10 @@ fun SessionDetailScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     var input by remember { mutableStateOf("") }
-    // 思考档位选择对话框（文档 §3.2）
-    var effortMenuOpen by remember { mutableStateOf(false) }
+    // 思考档位选择底部弹层（文档 §2.4：上拉菜单，滑杆+刻度行）
+    var effortSheetOpen by remember { mutableStateOf(false) }
+    // 用户输入预览模式（右上角 📋，对标 rikkahub Chat Options）
+    var previewMode by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     // 密度联动（问题二：紧凑模式下工具区更紧凑）
@@ -185,6 +203,25 @@ fun SessionDetailScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(end = 12.dp),
                         )
+                    }
+                    // 右上角「新建对话」（对标 rikkahub New Message）：进入空白新会话草稿
+                    if (session != null && !state.newSessionBusy) {
+                        IconButton(
+                            onClick = { viewModel.newSession { onNewChat() } },
+                            enabled = !state.running,
+                        ) {
+                            Text("💬＋", style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
+                    // 右上角「查看用户输入」：切换用户输入预览（搜索/跳转，对标 rikkahub Chat Options）
+                    val hasUserMessages = state.messages.any { it.role == Role.USER }
+                    if (hasUserMessages) {
+                        IconButton(onClick = { previewMode = !previewMode }) {
+                            Icon(
+                                if (previewMode) Icons.Filled.Close else Icons.Filled.List,
+                                contentDescription = if (previewMode) "退出预览" else "查看用户输入",
+                            )
+                        }
                     }
                     // 导出对话（md/json，SAF 写文件）；按 A1 能力字典 gate
                     val canExport = profile.let { p ->
@@ -286,11 +323,20 @@ fun SessionDetailScreen(
                             .padding(horizontal = 16.dp, vertical = 4.dp),
                     )
                 }
-                // 审批模式切换移到输入栏（对齐 rikkahub：模式 chip 在输入区）
-                ApprovalModeMenu(
-                    current = state.approvalMode,
-                    onChange = { viewModel.setApprovalMode(it) },
-                )
+                // Suggestion 胶囊（本地规则；非生成中显示，点击直接发送）
+                val suggestions = remember(state.messages, state.streaming) {
+                    if (state.streaming != null) emptyList()
+                    else localSuggestions(state.messages)
+                }
+                if (suggestions.isNotEmpty()) {
+                    SuggestionRow(
+                        suggestions = suggestions,
+                        onPick = { s ->
+                            viewModel.send(s)
+                            input = ""
+                        },
+                    )
+                }
                 InputBar(
                     input = input,
                     running = state.running,
@@ -305,7 +351,9 @@ fun SessionDetailScreen(
                     onToggleWebSearch = { viewModel.setWebSearch(!state.webSearchEnabled) },
                     effortLabel = effortLabel(state.effortLevel),
                     effortUnsupported = state.effortUnsupported,
-                    onOpenEffort = { effortMenuOpen = true },
+                    onOpenEffort = { effortSheetOpen = true },
+                    approvalMode = state.approvalMode,
+                    onApprovalModeChange = { viewModel.setApprovalMode(it) },
                     voiceSlot = {
                         VoiceInputButton(
                             onResult = { text -> input = if (input.isBlank()) text else "$input $text" },
@@ -313,14 +361,14 @@ fun SessionDetailScreen(
                         )
                     },
                 )
-                if (effortMenuOpen) {
-                    EffortMenuDialog(
+                if (effortSheetOpen) {
+                    EffortSheet(
                         current = state.effortLevel,
                         onSelect = { level ->
                             viewModel.setEffort(level)
-                            effortMenuOpen = false
+                            effortSheetOpen = false
                         },
-                        onDismiss = { effortMenuOpen = false },
+                        onDismiss = { effortSheetOpen = false },
                     )
                 }
             }
@@ -357,6 +405,19 @@ fun SessionDetailScreen(
 
                 else -> {
                     Box(Modifier.weight(1f).fillMaxWidth()) {
+                        // 用户输入预览模式（右上角 📋）：搜索 + 列表 + 跳转
+                        if (previewMode) {
+                            UserInputPreview(
+                                messages = state.messages,
+                                grouped = grouped,
+                                onJumpTo = { groupIndex ->
+                                    scope.launch { listState.scrollToItem(groupIndex) }
+                                    previewMode = false
+                                },
+                                onClose = { previewMode = false },
+                            )
+                            return@Box
+                        }
                         // 历史消息按 turn 聚合（grouped 在顶部计算，供滚动逻辑复用）
                         LazyColumn(
                             state = listState,
@@ -377,7 +438,11 @@ fun SessionDetailScreen(
                             grouped.forEach { group ->
                                 when (group) {
                                     is MessageGroup.Single -> item(key = "m-${group.message.id}") {
-                                        MessageItem(group.message)
+                                        MessageItem(
+                                            group.message,
+                                            // 生成中不显示操作行（避免按钮跳动）
+                                            showActions = state.streaming == null,
+                                        )
                                     }
                                     is MessageGroup.Process -> item(key = group.key) {
                                         ProcessHistoryCard(group)
@@ -509,6 +574,11 @@ private fun VoiceInputButton(
 /** 底部输入栏：普通态=输入框+发送；busy 态=Stop 键（输入清空时）；语音听写按钮插槽。
  *  质感：半透明圆角容器 + 1dp 描边 + 阴影；键盘弹出时底部两角变直角贴合 IME。 */
 @OptIn(ExperimentalLayoutApi::class)
+/**
+ * 底部输入区（两行，用户拍板）：
+ * 工具行 = 🌐 联网 + 💭 思考 + ⚡ 审批模式（权限控制）+ 🎤 语音；
+ * 输入行 = 输入框 + 发送/Stop 键独立占一行。
+ */
 @Composable
 private fun InputBar(
     input: String,
@@ -522,6 +592,8 @@ private fun InputBar(
     effortLabel: String,
     effortUnsupported: Boolean,
     onOpenEffort: () -> Unit,
+    approvalMode: String?,
+    onApprovalModeChange: (ApprovalMode) -> Unit,
     voiceSlot: @Composable () -> Unit = {},
 ) {
     val haptic = LocalHapticFeedback.current
@@ -539,90 +611,154 @@ private fun InputBar(
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
         shadowElevation = 6.dp,
     ) {
-        Row(
-            Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            // 联网开关（文档 §2.2）：开启高亮 + 输入框占位符提示"已开启联网"
-            IconButton(
-                onClick = onToggleWebSearch,
-                enabled = !readOnly,
-                modifier = Modifier
-                    .size(34.dp)
-                    .background(
-                        if (webSearchEnabled) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
-                        CircleShape,
-                    ),
+        Column(Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
+            // ---- 工具行：联网 / 思考档位 / 审批模式 / 语音 ----
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                Text(
-                    "🌐",
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.alpha(if (webSearchEnabled) 1f else 0.55f),
-                )
-            }
-            // 思考档位（文档 §3.2）：💭 + 当前档位标签；服务不支持时置灰
-            IconButton(
-                onClick = onOpenEffort,
-                enabled = !readOnly && !effortUnsupported,
-                modifier = Modifier
-                    .size(34.dp)
-                    .background(
-                        if (effortUnsupported) MaterialTheme.colorScheme.surfaceVariant
-                        else if (effortLabel != "自动") MaterialTheme.colorScheme.tertiaryContainer
-                        else Color.Transparent,
-                        CircleShape,
-                    ),
-            ) {
-                Text(
-                    if (effortUnsupported) "💭" else "💭 $effortLabel",
-                    style = MaterialTheme.typography.labelSmall,
-                    modifier = Modifier.alpha(if (effortUnsupported) 0.4f else 1f),
-                )
-            }
-            voiceSlot()
-            OutlinedTextField(
-                value = input,
-                onValueChange = onInput,
-                placeholder = {
+                // 联网开关（文档 §2.2）：开启高亮
+                IconButton(
+                    onClick = onToggleWebSearch,
+                    enabled = !readOnly,
+                    modifier = Modifier
+                        .size(30.dp)
+                        .background(
+                            if (webSearchEnabled) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                            CircleShape,
+                        ),
+                ) {
                     Text(
-                        when {
-                            readOnly -> "只读会话（发送将接管）"
-                            webSearchEnabled -> "🌐 已开启联网 · 回复或输入指令…"
-                            else -> "回复或输入指令…"
-                        },
+                        "🌐",
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.alpha(if (webSearchEnabled) 1f else 0.55f),
                     )
-                },
-                enabled = !readOnly,
-                modifier = Modifier.weight(1f),
-                maxLines = 3,
-                shape = RoundedCornerShape(16.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedContainerColor = Color.Transparent,
-                    unfocusedContainerColor = Color.Transparent,
-                    disabledContainerColor = Color.Transparent,
-                    focusedBorderColor = Color.Transparent,
-                    unfocusedBorderColor = Color.Transparent,
-                    disabledBorderColor = Color.Transparent,
-                ),
-            )
-            if (running && input.isBlank()) {
-                IconButton(
-                    onClick = onStop,
-                    modifier = Modifier.background(MaterialTheme.colorScheme.error, CircleShape),
-                ) {
-                    Text("■", color = MaterialTheme.colorScheme.onError)
                 }
-            } else {
+                // 思考档位（文档 §2.4）：💭 + 当前档位；服务不支持时置灰
                 IconButton(
-                    onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        onSend()
-                    },
-                    enabled = input.isNotBlank() && !readOnly,
-                    modifier = Modifier.background(MaterialTheme.colorScheme.primary, CircleShape),
+                    onClick = onOpenEffort,
+                    enabled = !readOnly && !effortUnsupported,
+                    modifier = Modifier
+                        .size(30.dp)
+                        .background(
+                            when {
+                                effortUnsupported -> MaterialTheme.colorScheme.surfaceVariant
+                                effortLabel != "自动" -> MaterialTheme.colorScheme.tertiaryContainer
+                                else -> Color.Transparent
+                            },
+                            CircleShape,
+                        ),
                 ) {
-                    Text("↑", color = MaterialTheme.colorScheme.onPrimary)
+                    Text(
+                        if (effortUnsupported) "💭" else "💭 $effortLabel",
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.alpha(if (effortUnsupported) 0.4f else 1f),
+                    )
+                }
+                // 审批模式（权限控制）：⚡ 三档，DropdownMenu
+                val currentMode = ApprovalMode.entries.firstOrNull { it.wire == approvalMode } ?: ApprovalMode.ASK
+                var modeMenu by remember { mutableStateOf(false) }
+                Box {
+                    IconButton(
+                        onClick = { modeMenu = true },
+                        enabled = !readOnly,
+                        modifier = Modifier
+                            .size(30.dp)
+                            .background(
+                                if (currentMode == ApprovalMode.YOLO) {
+                                    MaterialTheme.colorScheme.errorContainer
+                                } else if (currentMode == ApprovalMode.AUTO) {
+                                    MaterialTheme.colorScheme.secondaryContainer
+                                } else {
+                                    Color.Transparent
+                                },
+                                CircleShape,
+                            ),
+                    ) {
+                        Text(
+                            "⚡ ${currentMode.label}",
+                            style = MaterialTheme.typography.labelSmall,
+                        )
+                    }
+                    DropdownMenu(expanded = modeMenu, onDismissRequest = { modeMenu = false }) {
+                        ApprovalMode.entries.forEach { mode ->
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        buildString {
+                                            append(mode.label)
+                                            append(
+                                                when (mode) {
+                                                    ApprovalMode.ASK -> " · 逐个征求允许"
+                                                    ApprovalMode.AUTO -> " · 自动批准工具"
+                                                    ApprovalMode.YOLO -> " · 全速放行不询问"
+                                                },
+                                            )
+                                        },
+                                    )
+                                },
+                                onClick = {
+                                    onApprovalModeChange(mode)
+                                    modeMenu = false
+                                },
+                            )
+                        }
+                    }
+                }
+                Spacer(Modifier.weight(1f))
+                // 语音听写（工具行右侧）
+                voiceSlot()
+            }
+            // ---- 输入行：输入框 + 发送/Stop ----
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedTextField(
+                    value = input,
+                    onValueChange = onInput,
+                    placeholder = {
+                        Text(
+                            when {
+                                readOnly -> "只读会话（发送将接管）"
+                                webSearchEnabled -> "🌐 已开启联网 · 回复或输入指令…"
+                                else -> "回复或输入指令…"
+                            },
+                        )
+                    },
+                    enabled = !readOnly,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 3,
+                    shape = RoundedCornerShape(16.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent,
+                        disabledContainerColor = Color.Transparent,
+                        focusedBorderColor = Color.Transparent,
+                        unfocusedBorderColor = Color.Transparent,
+                        disabledBorderColor = Color.Transparent,
+                    ),
+                )
+                if (running && input.isBlank()) {
+                    IconButton(
+                        onClick = onStop,
+                        modifier = Modifier.background(MaterialTheme.colorScheme.error, CircleShape),
+                    ) {
+                        Text("■", color = MaterialTheme.colorScheme.onError)
+                    }
+                } else {
+                    IconButton(
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onSend()
+                        },
+                        enabled = input.isNotBlank() && !readOnly,
+                        modifier = Modifier.background(MaterialTheme.colorScheme.primary, CircleShape),
+                    ) {
+                        Text("↑", color = MaterialTheme.colorScheme.onPrimary)
+                    }
                 }
             }
         }
@@ -630,7 +766,12 @@ private fun InputBar(
 }
 
 @Composable
-private fun MessageItem(message: RemoteMessage) {
+private fun MessageItem(
+    message: RemoteMessage,
+    showActions: Boolean = false,
+    context: Context = LocalContext.current,
+    prefs: AppPreferences = remember { AppPreferences(context) },
+) {
     when (message.role) {
         Role.NOTICE -> Surface(
             color = MaterialTheme.colorScheme.secondaryContainer,
@@ -676,10 +817,12 @@ private fun MessageItem(message: RemoteMessage) {
                     )
                 }
             }
+            Column(
+                Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                horizontalAlignment = if (isUser) Alignment.End else Alignment.Start,
+            ) {
             Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp),
+                Modifier.fillMaxWidth(),
                 horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
                 verticalAlignment = Alignment.Bottom,
             ) {
@@ -765,6 +908,20 @@ private fun MessageItem(message: RemoteMessage) {
                     Spacer(Modifier.width(6.dp))
                     avatar()
                 }
+            }
+            // 消息操作行（assistant 消息下方：复制/朗读/收藏/更多；生成中不显示避免跳动）
+            if (!isUser && showActions) {
+                AnimatedVisibility(
+                    visible = true,
+                    enter = fadeIn() + slideInVertically(initialOffsetY = { it / 2 }),
+                ) {
+                    MessageActionRow(
+                        message = message,
+                        context = context,
+                        prefs = prefs,
+                    )
+                }
+            }
             }
         }
     }
@@ -1173,49 +1330,6 @@ private fun CompactApprovalButton(
     }
 }
 
-/** 审批模式切换菜单（询问/自动/YOLO，对标 PC 端三档） */
-@Composable
-private fun ApprovalModeMenu(
-    current: String?,
-    onChange: (ApprovalMode) -> Unit,
-) {
-    var expanded by remember { mutableStateOf(false) }
-    val currentMode = ApprovalMode.entries.firstOrNull { it.wire == current } ?: ApprovalMode.ASK
-    Box {
-        TextButton(onClick = { expanded = true }) {
-            Text(
-                "⚡ ${currentMode.label}",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary,
-            )
-        }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            ApprovalMode.entries.forEach { mode ->
-                DropdownMenuItem(
-                    text = {
-                        Text(
-                            buildString {
-                                append(mode.label)
-                                append(
-                                    when (mode) {
-                                        ApprovalMode.ASK -> " · 工具调用逐个征求允许"
-                                        ApprovalMode.AUTO -> " · 自动批准工具"
-                                        ApprovalMode.YOLO -> " · 全速放行不询问"
-                                    },
-                                )
-                            },
-                        )
-                    },
-                    onClick = {
-                        expanded = false
-                        onChange(mode)
-                    },
-                )
-            }
-        }
-    }
-}
-
 /** ViewModel 工厂（携带 profile/session 参数） */
 class SessionDetailViewModelFactory(
     private val profile: ConnectionProfile,
@@ -1433,57 +1547,402 @@ private fun rememberAutoScrollFollower(
 /** 档位 → 按钮标签（auto 显示"自动"） */
 private fun effortLabel(level: String): String = when (level) {
     "disabled" -> "关"
-    "low" -> "低"
+    "low" -> "轻"
     "high" -> "高"
-    "max" -> "最大"
+    "max" -> "超重"
     else -> "自动"
 }
 
-/** 思考档位选择对话框：自动 / 关闭思考 / 低 / 高 / 最大（当前档位单选高亮） */
+/**
+ * 思考档位底部弹层（上拉菜单，对标 rikkahub ReasoningPicker）：
+ * 标题 + 提示 + 当前档位名 + 滑杆（松手生效）+ 刻度行（点击直接生效，双向同步）。
+ * 档位：disabled(关闭) / auto(自动) / low(轻) / high(高) / max(超重)
+ */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun EffortMenuDialog(
+private fun EffortSheet(
     current: String,
     onSelect: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val options = listOf(
-        "auto" to "自动（跟随模型默认）",
-        "disabled" to "关闭思考（直接作答）",
-        "low" to "低",
+    val levels = listOf("disabled", "auto", "low", "high", "max")
+    val labels = mapOf(
+        "disabled" to "关闭",
+        "auto" to "自动",
+        "low" to "轻",
         "high" to "高",
-        "max" to "最大",
+        "max" to "超重",
     )
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("💭 思考档位") },
-        text = {
-            Column {
-                Text(
-                    "对标桌面端 /effort：切换即时生效，下次发送时应用（服务端 busy 时会提示失败）。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(10.dp))
-                options.forEach { (level, label) ->
-                    Row(
+    var sliderIndex by remember(current) {
+        mutableStateOf(levels.indexOf(current).coerceAtLeast(0))
+    }
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
+            Text(
+                "思考档位",
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.fillMaxWidth(),
+                textAlign = TextAlign.Center,
+            )
+            Text(
+                "调整模型思考深度，档位越高思考越充分、耗时越长",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                textAlign = TextAlign.Center,
+            )
+            Spacer(Modifier.height(18.dp))
+            // 当前档位名（选中高亮）
+            Text(
+                labels[levels[sliderIndex]] ?: "",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.fillMaxWidth(),
+                textAlign = TextAlign.Center,
+            )
+            Spacer(Modifier.height(6.dp))
+            // 滑杆：拖动即时预览，松手吸附并生效
+            Slider(
+                value = sliderIndex.toFloat(),
+                onValueChange = { sliderIndex = it.roundToInt() },
+                onValueChangeFinished = { onSelect(levels[sliderIndex]) },
+                valueRange = 0f..(levels.size - 1).toFloat(),
+                steps = levels.size - 2,
+            )
+            Spacer(Modifier.height(4.dp))
+            // 刻度行：每档一列，点击直接生效，与滑杆双向同步
+            Row(Modifier.fillMaxWidth().padding(bottom = 24.dp)) {
+                levels.forEachIndexed { i, level ->
+                    val selected = i == sliderIndex
+                    Column(
                         Modifier
-                            .fillMaxWidth()
-                            .clickable { onSelect(level) }
-                            .padding(vertical = 8.dp, horizontal = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+                            .weight(1f)
+                            .clickable {
+                                sliderIndex = i
+                                onSelect(level)
+                            }
+                            .padding(vertical = 4.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
-                        Text(
-                            if (level == current) "●" else "○",
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(end = 10.dp),
+                        Box(
+                            Modifier
+                                .width(if (selected) 20.dp else 16.dp)
+                                .height(if (selected) 6.dp else 4.dp)
+                                .background(
+                                    if (selected) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.outlineVariant,
+                                    RoundedCornerShape(50),
+                                ),
                         )
-                        Text(label, style = MaterialTheme.typography.bodyMedium)
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            labels[level] ?: level,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (selected) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                        )
                     }
                 }
             }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) { Text("关闭") }
-        },
+        }
+    }
+}
+
+// ========== 用户输入预览（右上角 📋，对标 rikkahub Chat Options） ==========
+
+/** 用户输入预览：搜索框 + 全部用户消息（截断）；点击跳转到正文对应分组并退出预览 */
+@Composable
+private fun UserInputPreview(
+    messages: List<RemoteMessage>,
+    grouped: List<MessageGroup>,
+    onJumpTo: (Int) -> Unit,
+    onClose: () -> Unit,
+) {
+    var query by remember { mutableStateOf("") }
+    // 用户消息 → 其在分组中的索引（Single 直接命中；Process 组取组内该消息）
+    val userEntries = remember(messages, grouped) {
+        messages.mapIndexedNotNull { index, m ->
+            if (m.role != Role.USER) return@mapIndexedNotNull null
+            val groupIndex = grouped.indexOfFirst { g -> g is MessageGroup.Single && g.message === m }
+            if (groupIndex < 0) null else Triple(index, m, groupIndex)
+        }
+    }
+    val filtered = remember(query, userEntries) {
+        if (query.isBlank()) userEntries
+        else userEntries.filter { (_, m, _) -> m.content.contains(query, ignoreCase = true) }
+    }
+    Column(Modifier.fillMaxSize()) {
+        // 顶部搜索框
+        OutlinedTextField(
+            value = query,
+            onValueChange = { query = it },
+            placeholder = { Text("搜索用户消息…") },
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+            singleLine = true,
+            shape = RoundedCornerShape(14.dp),
+            leadingIcon = { Text("🔍", style = MaterialTheme.typography.bodySmall) },
+        )
+        HorizontalDivider()
+        if (filtered.isEmpty()) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(
+                    if (query.isBlank()) "本会话还没有用户消息" else "没有匹配「$query」的消息",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        } else {
+            LazyColumn(Modifier.fillMaxSize()) {
+                items(filtered.size) { i ->
+                    val (index, m, groupIndex) = filtered[i]
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable { onJumpTo(groupIndex) }
+                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                    ) {
+                        Text(
+                            "#$index",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                        Text(
+                            m.content.replace(Regex("\\s+"), " ").take(80),
+                            style = MaterialTheme.typography.bodyMedium,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    HorizontalDivider(
+                        Modifier.padding(horizontal = 16.dp),
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                    )
+                }
+            }
+        }
+    }
+}
+
+// ========== 消息操作行（文档《消息操作与建议指导》§1.2 A 级） ==========
+
+/** assistant 消息下方操作行：复制 | 朗读 | 收藏 | 更多（网页渲染/翻译占位） */
+@Composable
+private fun MessageActionRow(
+    message: RemoteMessage,
+    context: Context,
+    prefs: AppPreferences,
+) {
+    val clipboard = LocalClipboardManager.current
+    val scope = rememberCoroutineScope()
+    var moreOpen by remember { mutableStateOf(false) }
+    var webPreview by remember { mutableStateOf(false) }
+    // 收藏状态（DataStore 持久化，重启保留）
+    var favorites by remember { mutableStateOf(emptySet<String>()) }
+    LaunchedEffect(Unit) {
+        prefs.favoriteMessages.collect { favorites = it }
+    }
+    val favKey = "fav-${message.id}"
+    val isFav = favKey in favorites
+    // TTS 朗读状态（Compose state）
+    val ttsSpeaking by MessageTts.speaking
+
+    Row(
+        Modifier.padding(start = 4.dp, top = 2.dp, bottom = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        ActionIconButton("📋") {
+            clipboard.setText(AnnotatedString(message.content))
+            Toast.makeText(context, "已复制", Toast.LENGTH_SHORT).show()
+        }
+        // 朗读（TTS 不可用时半透明禁用）
+        val ttsOk = MessageTts.isAvailable()
+        ActionIconButton(if (ttsSpeaking) "⏹" else "🔊", enabled = ttsOk) {
+            if (ttsSpeaking) {
+                MessageTts.stop()
+            } else {
+                MessageTts.ensureInit(context)
+                MessageTts.speak(message.content)
+            }
+        }
+        // 收藏
+        ActionIconButton(if (isFav) "⭐" else "☆") {
+            scope.launch { prefs.toggleFavoriteMessage(favKey, !isFav) }
+        }
+        // 更多
+        Box {
+            ActionIconButton("⋯") { moreOpen = true }
+            DropdownMenu(expanded = moreOpen, onDismissRequest = { moreOpen = false }) {
+                DropdownMenuItem(
+                    text = { Text("🖥 网页视图渲染") },
+                    onClick = {
+                        moreOpen = false
+                        webPreview = true
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text("🌐 翻译（复制原文）") },
+                    onClick = {
+                        moreOpen = false
+                        clipboard.setText(AnnotatedString(message.content))
+                        Toast.makeText(context, "已复制原文，粘贴到输入框让 agent 翻译", Toast.LENGTH_LONG).show()
+                    },
+                )
+            }
+        }
+    }
+
+    // 网页视图渲染：markdown → 自包含 HTML → WebView 对话框
+    if (webPreview) {
+        AlertDialog(
+            onDismissRequest = { webPreview = false },
+            title = { Text("网页视图预览") },
+            text = {
+                val html = remember(message.content) { markdownToHtml(message.content) }
+                android.webkit.WebView(context).apply {
+                    layoutParams = android.view.ViewGroup.LayoutParams(
+                        android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                        520,
+                    )
+                    settings.javaScriptEnabled = false
+                    loadDataWithBaseURL(null, html, "text/html", "UTF-8", null)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { webPreview = false }) { Text("关闭") }
+            },
+        )
+    }
+}
+
+/** 操作行小图标按钮（24dp、onSurfaceVariant、半透明禁用） */
+@Composable
+private fun ActionIconButton(
+    icon: String,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
+    TextButton(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = Modifier.height(28.dp),
+        contentPadding = PaddingValues(horizontal = 6.dp),
+    ) {
+        Text(
+            icon,
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.alpha(if (enabled) 0.85f else 0.38f),
+        )
+    }
+}
+
+/** 简易 markdown → 自包含 HTML（代码块/标题/粗体/行内码/表格/换行） */
+private fun markdownToHtml(md: String): String {
+    val sb = StringBuilder()
+    sb.append(
+        "<html><head><meta charset='utf-8'><style>" +
+            "body{font-family:sans-serif;font-size:14px;line-height:1.6;padding:8px;color:#1a1a1a}" +
+            "pre{background:#f4f4f4;border-radius:8px;padding:10px;overflow-x:auto;font-size:12.5px}" +
+            "code{background:#f0f0f0;border-radius:4px;padding:1px 4px}" +
+            "pre code{background:none;padding:0}" +
+            "table{border-collapse:collapse;margin:8px 0}td,th{border:1px solid #ccc;padding:4px 8px}" +
+            "blockquote{border-left:3px solid #ccc;margin:4px 0;padding:2px 8px;color:#555}" +
+            "</style></head><body>",
     )
+    // 按行处理：代码块状态机
+    var inCode = false
+    md.lineSequence().forEach { line ->
+        val trimmed = line.trim()
+        when {
+            trimmed.startsWith("```") -> {
+                if (inCode) sb.append("</code></pre>") else sb.append("<pre><code>")
+                inCode = !inCode
+            }
+            inCode -> sb.append(escapedHtml(line)).append('\n')
+            trimmed.isEmpty() -> sb.append("<br>")
+            trimmed.startsWith("# ") -> sb.append("<h3>").append(escapedHtml(trimmed.removePrefix("# "))).append("</h3>")
+            trimmed.startsWith("## ") -> sb.append("<h4>").append(escapedHtml(trimmed.removePrefix("## "))).append("</h4>")
+            trimmed.startsWith("### ") -> sb.append("<h5>").append(escapedHtml(trimmed.removePrefix("### "))).append("</h5>")
+            trimmed.startsWith("> ") -> sb.append("<blockquote>").append(escapedHtml(trimmed.removePrefix("> "))).append("</blockquote>")
+            trimmed.startsWith("|") && trimmed.endsWith("|") && trimmed.contains("---") -> { /* 表格分隔行跳过 */ }
+            trimmed.startsWith("|") && trimmed.endsWith("|") -> {
+                val cells = trimmed.trim('|').split("|").map { escapedHtml(it.trim()) }
+                sb.append("<table><tr>").append(cells.joinToString("") { "<td>$it</td>" }).append("</tr></table>")
+            }
+            trimmed.startsWith("- ") || trimmed.startsWith("* ") ->
+                sb.append("• ").append(escapedHtml(trimmed.drop(2))).append("<br>")
+            else -> {
+                // 行内格式化：**bold**、`code`
+                var s = escapedHtml(line)
+                s = s.replace(Regex("\\*\\*(.+?)\\*\\*"), "<b>$1</b>")
+                s = s.replace(Regex("`([^`]+)`"), "<code>$1</code>")
+                sb.append(s).append("<br>")
+            }
+        }
+    }
+    if (inCode) sb.append("</code></pre>")
+    sb.append("</body></html>")
+    return sb.toString()
+}
+
+private fun escapedHtml(s: String): String = s
+    .replace("&", "&amp;")
+    .replace("<", "&lt;")
+    .replace(">", "&gt;")
+
+// ========== Suggestion 胶囊（文档《消息操作与建议指导》§2.2 路径二：本地规则） ==========
+
+/** 本地规则建议生成器：按最后一条 assistant 消息内容给出 2-4 条下一步建议（0 成本） */
+private fun localSuggestions(messages: List<RemoteMessage>): List<String> {
+    val last = messages.lastOrNull { it.role == Role.ASSISTANT } ?: return emptyList()
+    val content = last.content
+    val out = mutableListOf<String>()
+    if ("```" in content) {
+        out += "解释一下这段代码"
+        out += "指出潜在问题"
+    }
+    if (Regex("\\|.*\\|.*\\|").containsMatchIn(content)) {
+        out += "用表格对比更多方案"
+    }
+    val trimmed = content.trim()
+    if (trimmed.endsWith("?") || trimmed.endsWith("？") || trimmed.endsWith("吗")) {
+        out += "继续深入这个话题"
+        out += "换个角度回答"
+    }
+    out += "总结要点"
+    out += "列出下一步计划"
+    out += "重新生成"
+    return out.distinct().take(4)
+}
+
+/** 建议胶囊行：横向 LazyRow，全圆角胶囊，点击直接发送（对标 rikkahub chatSuggestions） */
+@Composable
+private fun SuggestionRow(
+    suggestions: List<String>,
+    onPick: (String) -> Unit,
+) {
+    LazyRow(
+        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        items(suggestions.size) { i ->
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                shape = RoundedCornerShape(50),
+                modifier = Modifier
+                    .clickable { onPick(suggestions[i]) }
+                    .padding(horizontal = 2.dp, vertical = 1.dp),
+            ) {
+                Text(
+                    suggestions[i],
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                    maxLines = 1,
+                )
+            }
+        }
+    }
 }

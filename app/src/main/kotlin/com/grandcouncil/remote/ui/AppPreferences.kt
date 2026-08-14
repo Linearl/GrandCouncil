@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.grandcouncil.remote.ui.theme.DensityPreset
 import com.grandcouncil.remote.ui.theme.ThemePreset
@@ -33,6 +34,8 @@ class AppPreferences(private val context: Context) {
     private val webSearchPromptKey = stringPreferencesKey("web_search_prompt")
     // 思考档位：auto / disabled / low / high / max（对标 desktop /effort）
     private val effortKey = stringPreferencesKey("effort_level")
+    // 消息收藏（会话id|消息id → 收藏），重启保留
+    private val favoriteMessagesKey = stringSetPreferencesKey("favorite_messages")
 
     val theme: Flow<ThemePreset> = context.appDataStore.data.map { prefs ->
         prefs[themeKey]?.let { runCatching { ThemePreset.valueOf(it) }.getOrNull() }
@@ -72,6 +75,19 @@ class AppPreferences(private val context: Context) {
 
     suspend fun setEffortLevel(level: String) {
         context.appDataStore.edit { it[effortKey] = level }
+    }
+
+    /** 消息收藏：key = "会话id|消息id"（文档《消息操作与建议指导》§1.2 收藏） */
+    val favoriteMessages: Flow<Set<String>> = context.appDataStore.data.map { prefs ->
+        prefs[favoriteMessagesKey] ?: emptySet()
+    }
+
+    suspend fun toggleFavoriteMessage(key: String, favorite: Boolean) {
+        context.appDataStore.edit { prefs ->
+            val current = prefs[favoriteMessagesKey] ?: emptySet()
+            prefs[favoriteMessagesKey] =
+                if (favorite) current + key else current - key
+        }
     }
 
     companion object {
