@@ -105,11 +105,15 @@ fun SessionDetailScreen(
                             modifier = Modifier.padding(end = 12.dp),
                         )
                     }
-                    // 审批模式切换（询问/自动/YOLO——避免工具调用被审批卡住）
-                    ApprovalModeMenu(
-                        current = state.approvalMode,
-                        onChange = { viewModel.setApprovalMode(it) },
-                    )
+                    // 只读标记保留在顶栏
+                    if (session.heldBy == HeldBy.OTHER) {
+                        Text(
+                            "🔒 只读",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(end = 12.dp),
+                        )
+                    }
                 },
             )
         },
@@ -126,6 +130,11 @@ fun SessionDetailScreen(
                             .padding(horizontal = 16.dp, vertical = 4.dp),
                     )
                 }
+                // 审批模式切换移到输入栏（对齐 rikkahub：模式 chip 在输入区）
+                ApprovalModeMenu(
+                    current = state.approvalMode,
+                    onChange = { viewModel.setApprovalMode(it) },
+                )
                 InputBar(
                     input = input,
                     running = state.running,
