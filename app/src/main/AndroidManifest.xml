@@ -4,6 +4,8 @@
     <!-- 远端 Reasonix serve 访问（局域网/穿透隧道均为 HTTP/HTTPS） -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- A3 分类通知（Android 13+ 运行时授权） -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:label="@string/app_name"

@@ -28,6 +28,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -272,18 +274,29 @@ private fun StepCommand(
     )
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp)) {
+            val cmd = buildString {
+                append("reasonix serve --addr 0.0.0.0:8787")
+                if (authMode != AuthMode.NONE) {
+                    append(" --auth ${if (authMode == AuthMode.TOKEN) "token" else "password"}")
+                }
+            }
             Text(
-                buildString {
-                    append("reasonix serve --addr 0.0.0.0:8787")
-                    if (authMode != AuthMode.NONE) {
-                        append(" --auth ${if (authMode == AuthMode.TOKEN) "token" else "password"}")
-                    }
-                },
+                cmd,
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.padding(bottom = 8.dp),
             )
-            TextButton(onClick = { /* TODO: 复制到剪贴板 */ }) {
-                Text("复制命令")
+            var copied by remember { mutableStateOf(false) }
+            val clipboard = LocalClipboardManager.current
+            val scope = rememberCoroutineScope()
+            TextButton(onClick = {
+                clipboard.setText(AnnotatedString(cmd))
+                copied = true
+                scope.launch {
+                    kotlinx.coroutines.delay(2000)
+                    copied = false
+                }
+            }) {
+                Text(if (copied) "已复制 ✓" else "复制命令")
             }
         }
     }

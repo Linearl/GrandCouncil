@@ -21,6 +21,14 @@ class ReasonixAdapter(
 
     override val agentType: AgentType = AgentType.REASONIX
 
+    /** A1 能力字典：Reasonix serve 实际支持集 */
+    override fun supports(feature: Feature): Boolean = when (feature) {
+        Feature.STREAMING, Feature.APPROVAL, Feature.MODELS, Feature.CONTEXT,
+        Feature.DELETE_SESSION, Feature.NEW_SESSION, Feature.EXPORT -> true
+        // serve 无 release/takeover 端点（2026-08-14 源码路由表确认），TAKEOVER 不展示入口
+        Feature.TAKEOVER -> false
+    }
+
     override suspend fun listSessions(): List<RemoteSession> =
         api.listSessions().map { dto ->
             RemoteSession(

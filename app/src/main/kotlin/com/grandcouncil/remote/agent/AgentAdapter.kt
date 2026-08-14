@@ -6,6 +6,29 @@ import com.grandcouncil.remote.model.RemoteSession
 import kotlinx.coroutines.flow.Flow
 
 /**
+ * 能力字典（A1）：UI 按 supports(feature) 显隐入口，而不是按 try/catch 探测。
+ * 静态默认（adapter 实现类声明）+ 运行时按 profile/agent 覆盖；未知 agent 静默回退。
+ */
+enum class Feature {
+    /** SSE 流式聊天 */
+    STREAMING,
+    /** 工具审批（approve/bypass） */
+    APPROVAL,
+    /** 模型列表/切换 */
+    MODELS,
+    /** 上下文用量 */
+    CONTEXT,
+    /** 会话接管/释放 */
+    TAKEOVER,
+    /** 会话删除 */
+    DELETE_SESSION,
+    /** 新建会话 */
+    NEW_SESSION,
+    /** 消息导出 */
+    EXPORT,
+}
+
+/**
  * 多 agent 适配层抽象（核心差异化）：
  * 覆盖 Reasonix 与 MiMo Code serve 的共同协议子集
  * （session/message/event/permission/abort/fork/revert/summarize/todo）。
@@ -16,6 +39,9 @@ import kotlinx.coroutines.flow.Flow
 interface AgentAdapter {
 
     val agentType: AgentType
+
+    /** A1 能力字典：默认 false（未知能力不展示入口），实现类按实际能力覆盖 */
+    fun supports(feature: Feature): Boolean = false
 
     /** 会话列表（M1 实现） */
     suspend fun listSessions(): List<RemoteSession>

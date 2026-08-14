@@ -33,11 +33,14 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.grandcouncil.remote.R
@@ -45,6 +48,7 @@ import com.grandcouncil.remote.connection.ConnectionGuide
 import com.grandcouncil.remote.connection.ConnectionProfile
 import com.grandcouncil.remote.connection.ConnectionStore
 import com.grandcouncil.remote.connection.ConnectionTester
+import kotlinx.coroutines.launch
 
 /**
  * 连接管理（M1 验收：增/删/改 + 三层诊断测试）。
@@ -81,7 +85,9 @@ fun ConnectionScreen(
         ProfileEditorDialog(
             initial = if (state.isNewEditor) null else profile,
             onDismiss = { viewModel.closeEditor() },
-            onSave = { viewModel.saveProfile(it) },
+            onSave = { viewModel.saveWithTest(it) },
+            saving = state.saving,
+            editorError = state.editorError,
         )
     }
 }
@@ -200,12 +206,14 @@ private fun ProfileItem(
     }
 }
 
-/** 连接编辑/新建对话框（含向导文案） */
+/** 连接编辑/新建对话框（含向导文案；C2 宿主命令 + C3 保存前必测） */
 @Composable
 private fun ProfileEditorDialog(
     initial: ConnectionProfile?,
     onDismiss: () -> Unit,
     onSave: (ConnectionProfile) -> Unit,
+    saving: Boolean = false,
+    editorError: String? = null,
 ) {
     var name by remember { mutableStateOf(initial?.name ?: "") }
     var baseUrl by remember { mutableStateOf(initial?.baseUrl ?: "") }
@@ -286,6 +294,35 @@ private fun ProfileEditorDialog(
                     OutlinedField(stringResource(R.string.field_password), password) { password = it }
                 }
                 OutlinedField(stringResource(R.string.field_timeout), timeout) { timeout = it }
+                // C2 宿主侧命令：按表单值生成 serve 启动命令（端口取 baseUrl，默认 8787）
+                val port = Regex(":(\\d+)").find(baseUrl)?.groupValues?.get(1) ?: "8787"
+                val cmd = "reasonix serve --addr 0.0.0.0:$port" +
+                    (if (authMode == com.grandcouncil.remote.connection.AuthMode.NONE) "" else " --auth ${authMode.name.lowercase()}")
+                var copied by remember { mutableStateOf(false) }
+                val clipboard = LocalClipboardManager.current
+                val scope = rememberCoroutineScope()
+                Card(Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                    Row(
+                        Modifier.padding(start = 12.dp, top = 8.dp, bottom = 4.dp, end = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            cmd,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(onClick = {
+                            clipboard.setText(AnnotatedString(cmd))
+                            copied = true
+                            scope.launch {
+                                kotlinx.coroutines.delay(2000)
+                                copied = false
+                            }
+                        }) {
+                            Text(if (copied) "已复制 ✓" else "复制命令")
+                        }
+                    }
+                }
                 // 穿透方式内置配置向导
                 Text(
                     ConnectionGuide.stepsFor(connectionType).joinToString("\n") { "· $it" },
@@ -299,6 +336,15 @@ private fun ProfileEditorDialog(
                     color = MaterialTheme.colorScheme.tertiary,
                     modifier = Modifier.padding(top = 4.dp),
                 )
+                // C3 保存前必测：失败原因展示
+                if (editorError != null) {
+                    Text(
+                        editorError,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(top = 6.dp),
+                    )
+                }
             }
         },
         confirmButton = {
@@ -319,8 +365,8 @@ private fun ProfileEditorDialog(
                         )
                     )
                 },
-                enabled = baseUrl.isNotBlank(),
-            ) { Text(stringResource(R.string.connections_save)) }
+                enabled = baseUrl.isNotBlank() && !saving,
+            ) { Text(if (saving) "测试中…" else stringResource(R.string.connections_save)) }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text(stringResource(R.string.connections_cancel)) }

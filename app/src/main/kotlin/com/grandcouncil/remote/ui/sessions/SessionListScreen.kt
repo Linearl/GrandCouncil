@@ -103,10 +103,14 @@ fun SessionDrawerContent(
             },
             onNewSession = { viewModel.newSession { profile -> onNewSessionCreated(profile) } },
         )
-        // 搜索框（A2）
+        // 搜索框（A2；本地即时显示 + VM 200ms 防抖过滤）
+        var localQuery by remember { mutableStateOf(state.searchQuery) }
         androidx.compose.material3.OutlinedTextField(
-            value = state.searchQuery,
-            onValueChange = { viewModel.setSearchQuery(it) },
+            value = localQuery,
+            onValueChange = {
+                localQuery = it
+                viewModel.setSearchQuery(it)
+            },
             placeholder = { Text("搜索会话…") },
             singleLine = true,
             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp),
@@ -381,6 +385,23 @@ private fun parseSessionDate(sessionId: String): LocalDate? = runCatching {
     LocalDate.parse(sessionId.take(8), DateTimeFormatter.BASIC_ISO_DATE)
 }.getOrNull()
 
+/** 相对时间（今天 HH:mm / 昨天 / N 天前 / 更早日期）——从会话名解析 YYYYMMDD-HHMMSS */
+private fun relativeTime(sessionId: String): String? {
+    val dt = runCatching {
+        java.time.LocalDateTime.parse(
+            sessionId.take(15),
+            DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"),
+        )
+    }.getOrNull() ?: return null
+    val now = java.time.LocalDateTime.now()
+    val today = LocalDate.now()
+    return when {
+        dt.toLocalDate() == today -> "今天 ${dt.format(DateTimeFormatter.ofPattern("HH:mm"))}"
+        dt.toLocalDate() == today.minusDays(1) -> "昨天 ${dt.format(DateTimeFormatter.ofPattern("HH:mm"))}"
+        else -> "${java.time.temporal.ChronoUnit.DAYS.between(dt.toLocalDate(), today)} 天前"
+    }
+}
+
 /**
  * 长按激活式滑动操作（常规交互，多款 app 同款）：
  * 长按内容 1s（触觉反馈 + 视觉高亮）→ 同一手势继续左滑 → 露出底层操作按钮（收藏/删除）；
@@ -579,6 +600,7 @@ private fun SessionItem(
                         Text(
                             buildString {
                                 if (showDevice) append("${item.profile.name} · ")
+                                relativeTime(session.id)?.let { append("$it · ") }
                                 append("${session.turns} 轮")
                                 if (session.isCurrent) append(" · 当前")
                                 if (act) append(" · 左滑查看操作")

@@ -18,6 +18,9 @@ data class ConnectionUiState(
     /** 正在编辑的连接（null 表示未打开编辑器） */
     val editing: ConnectionProfile? = null,
     val isNewEditor: Boolean = false,
+    /** C3 保存前必测：测试中 / 编辑器内错误提示 */
+    val saving: Boolean = false,
+    val editorError: String? = null,
 )
 
 class ConnectionViewModel(
@@ -62,6 +65,34 @@ class ConnectionViewModel(
         viewModelScope.launch {
             connectionStore.save(updated)
             closeEditor()
+        }
+    }
+
+    /** C3 保存前必测：自动跑完整诊断，全部通过才保存；失败阻止保存并给出失败原因 */
+    fun saveWithTest(profile: ConnectionProfile) {
+        if (_uiState.value.saving) return
+        _uiState.value = _uiState.value.copy(saving = true, editorError = null)
+        viewModelScope.launch {
+            val results = mutableListOf<ConnectionTester.TestResult>()
+            tester.test(profile) { results += it }
+            val ok = results.isNotEmpty() && results.all { it.success }
+            if (ok) {
+                val current = _uiState.value.profiles
+                val updated = if (current.any { it.id == profile.id }) {
+                    current.map { if (it.id == profile.id) profile else it }
+                } else {
+                    current + profile
+                }
+                connectionStore.save(updated)
+                _uiState.value = _uiState.value.copy(saving = false)
+                closeEditor()
+            } else {
+                val reason = results.lastOrNull()?.message ?: "未知错误"
+                _uiState.value = _uiState.value.copy(
+                    saving = false,
+                    editorError = "测试未通过：$reason",
+                )
+            }
         }
     }
 

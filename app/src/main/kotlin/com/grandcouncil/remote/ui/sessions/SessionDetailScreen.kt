@@ -1,5 +1,8 @@
 package com.grandcouncil.remote.ui.sessions
 
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -16,6 +19,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -49,6 +53,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.grandcouncil.remote.agent.AgentAdapterFactory
+import com.grandcouncil.remote.agent.Feature
 import com.grandcouncil.remote.api.dto.ApprovalEventDto
 import com.grandcouncil.remote.connection.ConnectionProfile
 import com.grandcouncil.remote.model.HeldBy
@@ -57,6 +63,7 @@ import com.grandcouncil.remote.model.RemoteSession
 import com.grandcouncil.remote.model.Role
 import com.grandcouncil.remote.model.ToolCallStatus
 import com.grandcouncil.remote.ui.components.MessageContent
+import com.grandcouncil.remote.ui.export.SessionExporter
 import com.grandcouncil.remote.repository.SessionRepository
 import com.grandcouncil.remote.ui.theme.ReasonixColors
 
@@ -82,6 +89,14 @@ fun SessionDetailScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     var input by remember { mutableStateOf("") }
+    val context = LocalContext.current
+    // T5 发送失败恢复输入框文本
+    LaunchedEffect(state.restoreInput) {
+        state.restoreInput?.let { restored ->
+            input = restored
+            viewModel.clearRestoreInput()
+        }
+    }
     val listState = rememberLazyListState()
     // 点击消息区空白收起软键盘
     val focusManager = LocalFocusManager.current
@@ -116,14 +131,57 @@ fun SessionDetailScreen(
                             modifier = Modifier.padding(end = 12.dp),
                         )
                     }
-                    // 只读标记保留在顶栏
-                    if (session?.heldBy == HeldBy.OTHER) {
-                        Text(
-                            "🔒 只读",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(end = 12.dp),
-                        )
+                    // 导出对话（md/json，SAF 写文件）；按 A1 能力字典 gate
+                    val canExport = profile.let { p ->
+                        runCatching { AgentAdapterFactory.create(p).supports(Feature.EXPORT) }.getOrDefault(false)
+                    }
+                    if (canExport && state.messages.isNotEmpty()) {
+                        var exportMenuOpen by remember { mutableStateOf(false) }
+                        // 分格式 launcher：正确 mime 避免 DocumentsUI 追加 .txt 后缀
+                        fun writeExport(uri: android.net.Uri, content: String) {
+                            runCatching {
+                                context.contentResolver.openOutputStream(uri)?.use { out ->
+                                    out.write(content.toByteArray(Charsets.UTF_8))
+                                } ?: throw IllegalStateException("无法打开输出流")
+                            }.onSuccess {
+                                Toast.makeText(context, "已导出", Toast.LENGTH_SHORT).show()
+                            }.onFailure { e ->
+                                Toast.makeText(context, "导出失败：${e.message}", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                        val mdLauncher = rememberLauncherForActivityResult(
+                            ActivityResultContracts.CreateDocument("text/markdown"),
+                        ) { uri -> uri?.let { writeExport(it, SessionExporter.toMarkdown(session, state.messages)) } }
+                        val jsonLauncher = rememberLauncherForActivityResult(
+                            ActivityResultContracts.CreateDocument("application/json"),
+                        ) { uri -> uri?.let { writeExport(it, SessionExporter.toJson(session, state.messages)) } }
+                        Box {
+                            IconButton(onClick = { exportMenuOpen = true }) {
+                                Icon(
+                                    Icons.Filled.MoreVert,
+                                    contentDescription = "更多",
+                                )
+                            }
+                            DropdownMenu(
+                                expanded = exportMenuOpen,
+                                onDismissRequest = { exportMenuOpen = false },
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("导出 Markdown") },
+                                    onClick = {
+                                        exportMenuOpen = false
+                                        mdLauncher.launch("${session?.title?.take(24) ?: "会话"}.md")
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("导出 JSON") },
+                                    onClick = {
+                                        exportMenuOpen = false
+                                        jsonLauncher.launch("${session?.title?.take(24) ?: "会话"}.json")
+                                    },
+                                )
+                            }
+                        }
                     }
                 },
             )

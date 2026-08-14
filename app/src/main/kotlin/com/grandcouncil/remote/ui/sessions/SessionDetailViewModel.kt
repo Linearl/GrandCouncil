@@ -53,6 +53,8 @@ data class SessionDetailUiState(
     /** 工具审批模式：ask | auto | yolo（PC 端三档，避免被审批卡住） */
     val approvalMode: String? = null,
     val error: String? = null,
+    /** T5 发送失败后待恢复的输入框文本（UI 消费后调 clearRestoreInput） */
+    val restoreInput: String? = null,
 )
 
 /** 审批模式三档（对应 serve ask/auto/yolo） */
@@ -97,8 +99,9 @@ class SessionDetailViewModel(
                 },
                 onFailure = { e ->
                     val msg = e.message ?: "加载失败"
+                    // O1 降级：serve 无 release/takeover 端点，409 只能提示用户先在占用方释放
                     val friendly = if (msg.contains("409")) {
-                        "该会话被其他进程（桌面版等）占用——请先在桌面版关闭该会话标签页再试"
+                        "该会话正被桌面版等其他进程使用（只读保护）。\n请先在占用它的设备/窗口关闭该会话，再回来重试。"
                     } else msg
                     _uiState.value = _uiState.value.copy(
                         loading = false,
@@ -265,7 +268,11 @@ class SessionDetailViewModel(
         )
     }
 
-    /** 发送消息（乐观插入用户消息；输出走事件流） */
+    fun clearRestoreInput() {
+        _uiState.value = _uiState.value.copy(restoreInput = null)
+    }
+
+    /** 发送消息（T5 乐观插入：立即显示用户消息；失败移除并恢复输入框文本） */
     fun send(text: String) {
         val input = text.trim()
         if (input.isEmpty()) return
@@ -274,6 +281,7 @@ class SessionDetailViewModel(
                 id = "user-${System.currentTimeMillis()}",
                 role = Role.USER,
                 content = input,
+                timestamp = System.currentTimeMillis(),
             )
             _uiState.value = _uiState.value.copy(
                 messages = _uiState.value.messages + userMsg,
@@ -282,8 +290,11 @@ class SessionDetailViewModel(
             runCatching {
                 repository.submit(profile, input)
             }.onFailure { e ->
+                // 失败：移除乐观消息 + 恢复输入框文本（UI 收到 restoreInput 后回填）
                 _uiState.value = _uiState.value.copy(
+                    messages = _uiState.value.messages.filterNot { it.id == userMsg.id },
                     error = "发送失败：${e.message ?: "未知错误"}",
+                    restoreInput = input,
                 )
             }
         }

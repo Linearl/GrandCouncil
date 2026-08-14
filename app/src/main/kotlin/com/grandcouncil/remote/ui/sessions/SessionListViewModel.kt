@@ -14,6 +14,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
 
@@ -149,7 +150,20 @@ class SessionListViewModel(
     }
 
     fun setSearchQuery(query: String) {
-        _uiState.value = _uiState.value.copy(searchQuery = query)
+        // 输入框本地即时显示（UI 侧 localQuery），过滤由 200ms 防抖生效
+        searchInput.value = query
+    }
+
+    // 搜索 200ms 防抖（S4）：输入停止后过滤生效，避免每次按键全量过滤
+    private val searchInput = MutableStateFlow("")
+    init {
+        viewModelScope.launch {
+            searchInput
+                .debounce(200)
+                .collect { q ->
+                    _uiState.value = _uiState.value.copy(searchQuery = q)
+                }
+        }
     }
 
     fun clearError() {

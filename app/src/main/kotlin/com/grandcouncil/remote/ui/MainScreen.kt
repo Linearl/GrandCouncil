@@ -1,11 +1,15 @@
 package com.grandcouncil.remote.ui
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -14,11 +18,14 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -26,9 +33,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.grandcouncil.remote.ui.config.ConfigScreen
+import com.grandcouncil.remote.ui.demo.DemoChatScreen
 import com.grandcouncil.remote.connection.ConnectionProfile
 import com.grandcouncil.remote.ui.sessions.AggregatedSession
 import com.grandcouncil.remote.ui.sessions.SessionDetailScreen
@@ -37,7 +46,7 @@ import com.grandcouncil.remote.ui.wizard.WizardScreen
 import kotlinx.coroutines.launch
 
 /** 主区页面 */
-enum class MainSection { CHAT, CONFIG, WIZARD }
+enum class MainSection { CHAT, CONFIG, WIZARD, DEMO }
 
 /**
  * 主界面（rikkahub 式布局）：左上汉堡 → 抽屉会话栏（默认折叠）；
@@ -84,6 +93,14 @@ fun MainScreen() {
             }
         },
     ) {
+        // A3 通知深链：open_session extra → 打开会话栏（列表页）供用户选择
+        val activity = LocalContext.current as? android.app.Activity
+        LaunchedEffect(Unit) {
+            if (activity?.intent?.hasExtra("open_session") == true) {
+                drawerState.open()
+                activity.intent.removeExtra("open_session")
+            }
+        }
         Scaffold(
             topBar = {
                 TopAppBar(
@@ -98,6 +115,7 @@ fun MainScreen() {
                                 MainSection.CHAT -> selectedSession?.session?.title ?: "会话"
                                 MainSection.CONFIG -> "配置"
                                 MainSection.WIZARD -> "向导"
+                                MainSection.DEMO -> "演示"
                             },
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -123,20 +141,33 @@ fun MainScreen() {
                             modifier = Modifier.padding(padding),
                         )
 
-                        else -> ChatEmptyHint(Modifier.padding(padding))
+                        else -> ChatEmptyHint(
+                            modifier = Modifier.padding(padding),
+                            onAddConnection = {
+                                section = MainSection.WIZARD
+                                scope.launch { drawerState.close() }
+                            },
+                            onTryDemo = { section = MainSection.DEMO },
+                        )
                     }
                 }
 
                 MainSection.CONFIG -> ConfigScreen()
                 MainSection.WIZARD -> WizardScreen()
+                MainSection.DEMO -> DemoChatScreen(onBack = { section = MainSection.CHAT })
             }
         }
     }
 }
 
-/** 未选会话时的主区提示 */
+/** 未选会话时的主区提示（C4 空态三入口：添加连接 / 使用指南 / Try a Demo） */
 @Composable
-private fun ChatEmptyHint(modifier: Modifier = Modifier) {
+private fun ChatEmptyHint(
+    modifier: Modifier = Modifier,
+    onAddConnection: () -> Unit = {},
+    onTryDemo: () -> Unit = {},
+) {
+    var showGuide by remember { mutableStateOf(false) }
     Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text("⚔", style = MaterialTheme.typography.displayMedium)
@@ -152,6 +183,30 @@ private fun ChatEmptyHint(modifier: Modifier = Modifier) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 4.dp),
             )
+            Row(Modifier.padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = onAddConnection) { Text("➕ 添加连接") }
+                OutlinedButton(onClick = { showGuide = true }) { Text("📖 使用指南") }
+                TextButton(onClick = onTryDemo) { Text("🎬 Try a Demo") }
+            }
         }
+    }
+    if (showGuide) {
+        AlertDialog(
+            onDismissRequest = { showGuide = false },
+            title = { Text("使用指南") },
+            text = {
+                Text(
+                    "1. 电脑上运行：reasonix serve --addr 0.0.0.0:8787 --auth token\n" +
+                        "2. 手机「向导」添加连接（局域网/穿透均可）\n" +
+                        "3. 测试通过后保存，会话列表自动出现\n" +
+                        "4. 长按会话可左滑删除；审批会推送通知\n" +
+                        "5. 没把握？点「Try a Demo」先看效果",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { showGuide = false }) { Text("知道了") }
+            },
+        )
     }
 }
