@@ -3,21 +3,29 @@ package com.grandcouncil.remote.ui.sessions
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.MoreVert
@@ -31,6 +39,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -439,7 +448,9 @@ private fun VoiceInputButton(
     }
 }
 
-/** 底部输入栏：普通态=输入框+发送；busy 态=Stop 键（输入清空时）；语音听写按钮插槽 */
+/** 底部输入栏：普通态=输入框+发送；busy 态=Stop 键（输入清空时）；语音听写按钮插槽。
+ *  质感：半透明圆角容器 + 1dp 描边 + 阴影；键盘弹出时底部两角变直角贴合 IME。 */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun InputBar(
     input: String,
@@ -451,40 +462,61 @@ private fun InputBar(
     voiceSlot: @Composable () -> Unit = {},
 ) {
     val haptic = LocalHapticFeedback.current
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surface)
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    val imeVisible = WindowInsets.isImeVisible
+    // IME 弹出时底部两角变直角（贴合键盘）；否则大圆角悬浮容器
+    val containerShape = if (imeVisible) {
+        RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
+    } else {
+        RoundedCornerShape(20.dp)
+    }
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = containerShape,
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
+        shadowElevation = 6.dp,
     ) {
-        voiceSlot()
-        OutlinedTextField(
-            value = input,
-            onValueChange = onInput,
-            placeholder = { Text(if (readOnly) "只读会话（发送将接管）" else "回复或输入指令…") },
-            enabled = !readOnly,
-            modifier = Modifier.weight(1f),
-            maxLines = 3,
-        )
-        if (running && input.isBlank()) {
-            IconButton(
-                onClick = onStop,
-                modifier = Modifier.background(MaterialTheme.colorScheme.error, CircleShape),
-            ) {
-                Text("■", color = MaterialTheme.colorScheme.onError)
-            }
-        } else {
-            IconButton(
-                onClick = {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onSend()
-                },
-                enabled = input.isNotBlank() && !readOnly,
-                modifier = Modifier.background(MaterialTheme.colorScheme.primary, CircleShape),
-            ) {
-                Text("↑", color = MaterialTheme.colorScheme.onPrimary)
+        Row(
+            Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            voiceSlot()
+            OutlinedTextField(
+                value = input,
+                onValueChange = onInput,
+                placeholder = { Text(if (readOnly) "只读会话（发送将接管）" else "回复或输入指令…") },
+                enabled = !readOnly,
+                modifier = Modifier.weight(1f),
+                maxLines = 3,
+                shape = RoundedCornerShape(16.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor = Color.Transparent,
+                    unfocusedContainerColor = Color.Transparent,
+                    disabledContainerColor = Color.Transparent,
+                    focusedBorderColor = Color.Transparent,
+                    unfocusedBorderColor = Color.Transparent,
+                    disabledBorderColor = Color.Transparent,
+                ),
+            )
+            if (running && input.isBlank()) {
+                IconButton(
+                    onClick = onStop,
+                    modifier = Modifier.background(MaterialTheme.colorScheme.error, CircleShape),
+                ) {
+                    Text("■", color = MaterialTheme.colorScheme.onError)
+                }
+            } else {
+                IconButton(
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onSend()
+                    },
+                    enabled = input.isNotBlank() && !readOnly,
+                    modifier = Modifier.background(MaterialTheme.colorScheme.primary, CircleShape),
+                ) {
+                    Text("↑", color = MaterialTheme.colorScheme.onPrimary)
+                }
             }
         }
     }
@@ -519,10 +551,35 @@ private fun MessageItem(message: RemoteMessage) {
 
         else -> {
             val isUser = message.role == Role.USER
+            // 头像分列：assistant 左（🤖 圆底）、user 右（🧑）；NOTICE/TOOL 无头像
+            val avatar = @Composable {
+                Box(
+                    Modifier
+                        .size(30.dp)
+                        .background(
+                            if (isUser) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                            else MaterialTheme.colorScheme.tertiary.copy(alpha = 0.15f),
+                            CircleShape,
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        if (isUser) "🧑" else "🤖",
+                        style = MaterialTheme.typography.titleSmall,
+                    )
+                }
+            }
             Row(
-                Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp),
                 horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
+                verticalAlignment = Alignment.Bottom,
             ) {
+                if (!isUser) {
+                    avatar()
+                    Spacer(Modifier.width(6.dp))
+                }
                 Surface(
                     color = if (isUser) MaterialTheme.colorScheme.primary
                     else MaterialTheme.colorScheme.surfaceVariant,
@@ -565,6 +622,10 @@ private fun MessageItem(message: RemoteMessage) {
                             }
                         }
                     }
+                }
+                if (isUser) {
+                    Spacer(Modifier.width(6.dp))
+                    avatar()
                 }
             }
         }

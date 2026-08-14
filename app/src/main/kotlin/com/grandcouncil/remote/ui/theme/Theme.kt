@@ -138,12 +138,21 @@ fun GrandCouncilTheme(
     preset: ThemePreset = ThemePreset.WARM,
     darkTheme: Boolean = isSystemInDarkTheme(),
     amoledDark: Boolean = false,
+    dynamicColor: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     val palette = (if (darkTheme) ReasonixPalettes[preset]?.first
     else ReasonixPalettes[preset]?.second) ?: ReasonixPalettes.getValue(ThemePreset.WARM).first
 
-    val colorScheme = if (darkTheme) {
+    // P2 动态取色：Android 12+ 跟随壁纸（Material You）；开启时 AMOLED 不生效（系统配色）
+    val colorScheme = if (dynamicColor && android.os.Build.VERSION.SDK_INT >= 31) {
+        val ctx = androidx.compose.ui.platform.LocalContext.current
+        if (darkTheme) {
+            androidx.compose.material3.dynamicDarkColorScheme(ctx)
+        } else {
+            androidx.compose.material3.dynamicLightColorScheme(ctx)
+        }
+    } else if (darkTheme) {
         // P2 AMOLED 纯黑：暗色下背景/表面强制纯黑（OLED 省电 + 对比度）
         val bg = if (amoledDark) Color.Black else hex("#14171c")
         val surface = if (amoledDark) Color.Black else hex("#1a1e24")

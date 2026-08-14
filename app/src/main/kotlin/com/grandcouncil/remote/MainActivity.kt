@@ -51,9 +51,11 @@ class MainActivity : FragmentActivity() {
             val prefs = remember { AppPreferences(context) }
             var themePreset by remember { mutableStateOf(ThemePreset.WARM) }
             var amoledDark by remember { mutableStateOf(false) }
+            var dynamicColor by remember { mutableStateOf(false) }
             androidx.compose.runtime.LaunchedEffect(Unit) {
                 prefs.theme.collect { themePreset = it }
                 prefs.amoledDark.collect { amoledDark = it }
+                prefs.dynamicColor.collect { dynamicColor = it }
             }
             // A4 生物识别锁：开关开启且设备支持时进入前验证
             val locked by lockState.collectAsState()
@@ -69,6 +71,7 @@ class MainActivity : FragmentActivity() {
                 preset = themePreset,
                 darkTheme = isSystemInDarkTheme(),
                 amoledDark = amoledDark,
+                dynamicColor = dynamicColor,
             ) {
                 if (locked) {
                     LockScreen(

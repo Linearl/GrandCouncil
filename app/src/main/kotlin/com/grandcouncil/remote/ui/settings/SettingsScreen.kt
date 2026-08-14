@@ -52,12 +52,14 @@ fun SettingsScreen(onBack: () -> Unit) {
     var density by remember { mutableStateOf(DensityPreset.COMFORTABLE) }
     var biometricLock by remember { mutableStateOf(false) }
     var amoledDark by remember { mutableStateOf(false) }
+    var dynamicColor by remember { mutableStateOf(false) }
 
     androidx.compose.runtime.LaunchedEffect(Unit) {
         prefs.theme.collect { theme = it }
         prefs.density.collect { density = it }
         prefs.biometricLock.collect { biometricLock = it }
         prefs.amoledDark.collect { amoledDark = it }
+        prefs.dynamicColor.collect { dynamicColor = it }
     }
 
     Scaffold(
@@ -124,6 +126,29 @@ fun SettingsScreen(onBack: () -> Unit) {
             }
             HorizontalDivider(Modifier.padding(vertical = 12.dp))
             SectionTitle("显示")
+            // P2 动态取色：Android 12+ 跟随壁纸（Material You）
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("跟随壁纸（动态取色）", style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        if (dynamicColor) "使用系统 Material You 配色" else "Android 12+ 生效，默认关闭",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = dynamicColor,
+                    onCheckedChange = { on ->
+                        dynamicColor = on
+                        scope.launch { prefs.setDynamicColor(on) }
+                    },
+                )
+            }
             // P2 AMOLED 纯黑：暗色模式下背景/表面强制纯黑（OLED 省电、对比度高）
             Row(
                 Modifier

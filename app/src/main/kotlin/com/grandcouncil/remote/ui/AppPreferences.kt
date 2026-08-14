@@ -21,6 +21,8 @@ class AppPreferences(private val context: Context) {
     private val biometricLockKey = booleanPreferencesKey("biometric_lock")
     // P2 AMOLED 纯黑（dark 模式背景强制纯黑）
     private val amoledKey = booleanPreferencesKey("amoled_dark")
+    // P2 动态取色（Android 12+ 跟随壁纸）
+    private val dynamicColorKey = booleanPreferencesKey("dynamic_color")
     // C5 启动恢复：上次连接与会话（浏览位置）
     private val lastProfileIdKey = stringPreferencesKey("last_profile_id")
     private val lastSessionIdKey = stringPreferencesKey("last_session_id")
@@ -49,6 +51,15 @@ class AppPreferences(private val context: Context) {
 
     suspend fun setAmoledDark(enabled: Boolean) {
         context.appDataStore.edit { it[amoledKey] = enabled }
+    }
+
+    /** P2 动态取色：Android 12+ 跟随壁纸生成 Material You 配色（默认关闭） */
+    val dynamicColor: Flow<Boolean> = context.appDataStore.data.map { prefs ->
+        prefs[dynamicColorKey] ?: false
+    }
+
+    suspend fun setDynamicColor(enabled: Boolean) {
+        context.appDataStore.edit { it[dynamicColorKey] = enabled }
     }
 
     suspend fun setBiometricLock(enabled: Boolean) {
