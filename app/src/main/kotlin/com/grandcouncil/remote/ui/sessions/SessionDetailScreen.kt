@@ -1,6 +1,7 @@
 package com.grandcouncil.remote.ui.sessions
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -38,7 +39,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -78,6 +82,9 @@ fun SessionDetailScreen(
     val state by viewModel.uiState.collectAsState()
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
+    // 点击消息区空白收起软键盘
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
 
     // 每次进入（会话切换/组合重建）强制重新加载，避免旧快照/残留流式状态
     LaunchedEffect(session?.id) { viewModel.load() }
@@ -181,7 +188,18 @@ fun SessionDetailScreen(
                 else -> {
                     LazyColumn(
                         state = listState,
-                        modifier = Modifier.weight(1f).fillMaxWidth(),
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                            // 点击非输入区域收起软键盘（clearFocus + hide）
+                            .pointerInput(Unit) {
+                                detectTapGestures(
+                                    onTap = {
+                                        focusManager.clearFocus()
+                                        keyboardController?.hide()
+                                    },
+                                )
+                            },
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                         contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 10.dp),
                     ) {
