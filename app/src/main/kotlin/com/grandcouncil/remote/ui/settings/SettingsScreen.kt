@@ -53,6 +53,7 @@ fun SettingsScreen(onBack: () -> Unit) {
     var biometricLock by remember { mutableStateOf(false) }
     var amoledDark by remember { mutableStateOf(false) }
     var dynamicColor by remember { mutableStateOf(false) }
+    var autoScroll by remember { mutableStateOf(true) }
 
     androidx.compose.runtime.LaunchedEffect(Unit) {
         prefs.theme.collect { theme = it }
@@ -60,6 +61,7 @@ fun SettingsScreen(onBack: () -> Unit) {
         prefs.biometricLock.collect { biometricLock = it }
         prefs.amoledDark.collect { amoledDark = it }
         prefs.dynamicColor.collect { dynamicColor = it }
+        prefs.autoScroll.collect { autoScroll = it }
     }
 
     Scaffold(
@@ -126,6 +128,29 @@ fun SettingsScreen(onBack: () -> Unit) {
             }
             HorizontalDivider(Modifier.padding(vertical = 12.dp))
             SectionTitle("显示")
+            // 聊天滚动跟随：生成时自动滚动到底（默认开）
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("生成时自动滚动跟随", style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        if (autoScroll) "推理/工具/输出更新时保持底部" else "关闭（发送消息仍滚到底）",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = autoScroll,
+                    onCheckedChange = { on ->
+                        autoScroll = on
+                        scope.launch { prefs.setAutoScroll(on) }
+                    },
+                )
+            }
             // P2 动态取色：Android 12+ 跟随壁纸（Material You）
             Row(
                 Modifier

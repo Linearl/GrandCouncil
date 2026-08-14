@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -59,6 +60,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -141,25 +143,20 @@ fun SessionDetailScreen(
     // 每次进入（会话切换/组合重建）强制重新加载，避免旧快照/残留流式状态
     LaunchedEffect(session?.id) { viewModel.load() }
 
-    // 工作中滚动展示（问题三）：生成中（streaming != null）且用户未上翻
-    // （距底 < 2 屏）→ 瞬时 scrollToItem 持续跟随；上翻暂停、回底恢复；
-    // 生成结束时（streaming 变 null）不强制拉回
-    LaunchedEffect(
-        state.messages.size,
-        state.streaming?.text?.length,
-        state.streaming?.tools?.size,
-        state.streaming?.reasoning?.length,
-    ) {
-        val streaming = state.streaming
-        val count = grouped.size + if (streaming != null) 1 else 0
-        if (count <= 0) return@LaunchedEffect
-        kotlinx.coroutines.delay(80)
-        val info = listState.layoutInfo
-        val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: -1
-        val visibleCount = info.visibleItemsInfo.size.coerceAtLeast(1)
-        val farFromBottom = count - 1 - lastVisible > visibleCount * 2
-        if (!farFromBottom && streaming != null) {
-            listState.scrollToItem(count - 1)
+    // 工作中滚动展示（聊天滚动跟随修复指导）：snapshotFlow 持续监听可见项——
+    // 推理/工具/文本任何更新都触发判定；生成中 + 用户未滚动 + 底部附近 +
+    // 距上次用户滚动 > 1.5s 才瞬时 scrollToItem；生成结束不强制拉回
+    val autoScrollEnabled by prefs.autoScroll.collectAsState(initial = true)
+    rememberAutoScrollFollower(
+        listState = listState,
+        loading = state.running,
+        enabled = autoScrollEnabled,
+    )
+    // 自己发送消息后滚到底（用户主动行为，独立于跟随开关）
+    LaunchedEffect(state.messages.size) {
+        if (state.messages.lastOrNull()?.role == Role.USER) {
+            val count = grouped.size + if (state.streaming != null) 1 else 0
+            if (count > 0) listState.scrollToItem(count - 1)
         }
     }
 
@@ -1263,6 +1260,45 @@ private fun ProcessHistoryCard(group: MessageGroup.Process) {
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.padding(12.dp),
                 )
+            }
+        }
+    }
+}
+
+// ========== 工作中自动滚动跟随（聊天滚动跟随修复指导） ==========
+
+/**
+ * 生成中自动滚动跟随：snapshotFlow 持续监听可见项变化（推理/工具/文本任何
+ * 更新都会重新发射），满足全部条件才瞬时滚动到底：
+ * 生成中(loading) + 用户未在滚动(isScrollInProgress=false) +
+ * 距上次用户主动滚动 > 1.5s + 位于底部附近（最后可见项 ≥ 总项数-2 或内容不满一屏）。
+ * 生成结束（loading=false）不强制拉回。
+ */
+@Composable
+private fun rememberAutoScrollFollower(
+    listState: LazyListState,
+    loading: Boolean,
+    enabled: Boolean,
+) {
+    var lastUserScrollAt by remember { mutableStateOf(0L) }
+    // 记录用户滚动：滚动动作开始时打点
+    LaunchedEffect(listState.isScrollInProgress) {
+        if (listState.isScrollInProgress) lastUserScrollAt = System.currentTimeMillis()
+    }
+    LaunchedEffect(listState, loading, enabled) {
+        if (!enabled) return@LaunchedEffect
+        snapshotFlow { listState.layoutInfo.visibleItemsInfo }.collect { visible ->
+            if (!loading) return@collect
+            if (listState.isScrollInProgress) return@collect
+            val now = System.currentTimeMillis()
+            if (now - lastUserScrollAt < 1500) return@collect
+            val total = listState.layoutInfo.totalItemsCount
+            val lastVisible = visible.lastOrNull()?.index ?: -1
+            // 底部附近：最后可见项在最后 2 项内；内容不满一屏天然在底部
+            val atBottom = total <= 0 || lastVisible >= total - 2
+            // 节流：已经在最后一项就不重复滚动（流式高频下避免无谓布局）
+            if (atBottom && lastVisible != total - 1) {
+                listState.scrollToItem(total - 1) // 瞬时，无动画（流式高频下避免动画排队）
             }
         }
     }

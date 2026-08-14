@@ -23,6 +23,8 @@ class AppPreferences(private val context: Context) {
     private val amoledKey = booleanPreferencesKey("amoled_dark")
     // P2 动态取色（Android 12+ 跟随壁纸）
     private val dynamicColorKey = booleanPreferencesKey("dynamic_color")
+    // 聊天滚动跟随：生成时自动滚动到底（默认开）
+    private val autoScrollKey = booleanPreferencesKey("auto_scroll_follow")
     // C5 启动恢复：上次连接与会话（浏览位置）
     private val lastProfileIdKey = stringPreferencesKey("last_profile_id")
     private val lastSessionIdKey = stringPreferencesKey("last_session_id")
@@ -60,6 +62,15 @@ class AppPreferences(private val context: Context) {
 
     suspend fun setDynamicColor(enabled: Boolean) {
         context.appDataStore.edit { it[dynamicColorKey] = enabled }
+    }
+
+    /** 聊天滚动跟随：生成时自动滚动到底（默认开启） */
+    val autoScroll: Flow<Boolean> = context.appDataStore.data.map { prefs ->
+        prefs[autoScrollKey] ?: true
+    }
+
+    suspend fun setAutoScroll(enabled: Boolean) {
+        context.appDataStore.edit { it[autoScrollKey] = enabled }
     }
 
     suspend fun setBiometricLock(enabled: Boolean) {
