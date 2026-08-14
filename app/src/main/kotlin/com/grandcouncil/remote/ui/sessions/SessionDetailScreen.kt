@@ -56,6 +56,7 @@ import com.grandcouncil.remote.model.RemoteMessage
 import com.grandcouncil.remote.model.RemoteSession
 import com.grandcouncil.remote.model.Role
 import com.grandcouncil.remote.model.ToolCallStatus
+import com.grandcouncil.remote.ui.components.MessageContent
 import com.grandcouncil.remote.repository.SessionRepository
 import com.grandcouncil.remote.ui.theme.ReasonixColors
 
@@ -89,11 +90,14 @@ fun SessionDetailScreen(
     // 每次进入（会话切换/组合重建）强制重新加载，避免旧快照/残留流式状态
     LaunchedEffect(session?.id) { viewModel.load() }
 
-    // 新消息/流式变化时自动滚到底（首帧后执行，避免未布局时滚动异常）
+    // 新消息/流式变化时自动滚到底（P0-4：仅当用户当前位于底部附近才跟随，
+    // 用户上翻查看时不抢滚动；等价于 rikkahub 规格「生成中且用户位于底部 → 持续跟随」）
     LaunchedEffect(state.messages.size, state.streaming?.text?.length, state.streaming?.tools?.size) {
         kotlinx.coroutines.delay(120)
         val count = state.messages.size + if (state.streaming != null) 1 else 0
-        if (count > 0) listState.animateScrollToItem(count - 1)
+        if (count <= 0) return@LaunchedEffect
+        val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+        if (lastVisible >= count - 2) listState.animateScrollToItem(count - 1)
     }
 
     Scaffold(
@@ -320,15 +324,21 @@ private fun MessageItem(message: RemoteMessage) {
                             )
                             HorizontalDivider(Modifier.padding(vertical = 4.dp))
                         }
-                        Text(
-                            message.content.ifBlank { "…" },
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = if (isUser) MaterialTheme.colorScheme.onPrimary
-                            else MaterialTheme.colorScheme.onSurface,
-                            // 超长消息（如 serve 注入的 reasoning-language 指令）限高，避免撑屏
-                            maxLines = 15,
-                            overflow = TextOverflow.Ellipsis,
-                        )
+                        if (!isUser) {
+                            MessageContent(
+                                content = message.content.ifBlank { "…" },
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                        } else {
+                            Text(
+                                message.content.ifBlank { "…" },
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                maxLines = 15,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
                         if (message.toolCalls.isNotEmpty()) {
                             message.toolCalls.forEach { tool ->
                                 HorizontalDivider(Modifier.padding(vertical = 4.dp))
@@ -398,10 +408,12 @@ private fun StreamingItem(streaming: StreamingMessage) {
                 shape = MaterialTheme.shapes.large,
                 modifier = Modifier.widthIn(max = 340.dp),
             ) {
-                Text(
-                    streaming.text,
+                MessageContent(
+                    content = streaming.text,
                     style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.padding(12.dp),
+                    textMaxLines = -1,
                 )
             }
         }

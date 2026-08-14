@@ -2,29 +2,28 @@ package com.grandcouncil.remote.ui.sessions
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.background
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.Orientation
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.draggable
-import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -45,12 +44,15 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.changedToDown
 import androidx.compose.ui.input.pointer.changedToUp
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.input.pointer.positionChanged
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -62,6 +64,7 @@ import com.grandcouncil.remote.repository.SessionRepository
 import com.grandcouncil.remote.ui.AppPreferences
 import com.grandcouncil.remote.ui.theme.DensityPreset
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import kotlin.math.roundToInt
@@ -379,104 +382,113 @@ private fun parseSessionDate(sessionId: String): LocalDate? = runCatching {
 }.getOrNull()
 
 /**
- * 左滑露出删除按钮（iOS 风格 swipe reveal，手动手势实现避免框架手势竞争）：
- * 水平拖动内容层，左滑超阈值吸附露出底层删除按钮；再次点击内容收起；长按弹菜单。
+ * 长按激活式滑动操作（常规交互，多款 app 同款）：
+ * 长按内容 1s（触觉反馈 + 视觉高亮）→ 同一手势继续左滑 → 露出底层操作按钮（收藏/删除）；
+ * 点击红色删除按钮才删除；未激活时左滑为普通滚动、点击为打开会话。
  */
 @Composable
 private fun SwipeRevealItem(
     onClick: () -> Unit,
-    onDelete: () -> Unit,
-    onLongClick: () -> Unit = {},
+    onActivate: () -> Unit,
+    onDeactivate: () -> Unit,
     modifier: Modifier = Modifier,
-    content: @Composable () -> Unit,
+    actions: @Composable (close: () -> Unit) -> Unit,
+    content: @Composable (activated: Boolean) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
+    val haptic = LocalHapticFeedback.current
     val offsetX = remember { Animatable(0f) }
-    val revealPx = with(LocalDensity.current) { 76.dp.toPx() }
+    val revealPx = with(LocalDensity.current) { 132.dp.toPx() }
+    var activated by remember { mutableStateOf(false) }
     var revealed by remember { mutableStateOf(false) }
+    val longPressMillis = 1000L
+    // 按钮点击后收起
+    val close = {
+        scope.launch { offsetX.animateTo(0f) }
+        revealed = false
+        activated = false
+        onDeactivate()
+    }
 
-    Box(modifier) {
-        // 底层：删除按钮（右对齐）
+    Box(modifier.clipToBounds()) {
+        // 底层：操作按钮（右对齐，横向排列；end padding 对齐卡片右缘，避免未滑动时露出缝隙）
         Box(
             Modifier
                 .matchParentSize()
-                .background(MaterialTheme.colorScheme.error),
+                .background(MaterialTheme.colorScheme.surfaceContainerHigh),
             contentAlignment = Alignment.CenterEnd,
         ) {
-            IconButton(onClick = {
-                scope.launch { offsetX.snapTo(0f) }
-                revealed = false
-                onDelete()
-            }) {
-                Icon(
-                    Icons.Filled.Delete,
-                    contentDescription = "删除会话",
-                    tint = MaterialTheme.colorScheme.onError,
-                )
-            }
+            actions(close)
         }
-        // 上层：内容（手动手势：拖/点/长按）
+        // 上层：内容（长按激活 + 左滑；translationX 渲染层变换，随 Animatable 实时更新）
         Box(
             Modifier
                 .fillMaxWidth()
-                .offset { IntOffset(offsetX.value.roundToInt(), 0) }
+                .graphicsLayer { translationX = offsetX.value }
                 .pointerInput(Unit) {
                     awaitEachGesture {
-                        val down = awaitFirstDown()
-                        var dragging = false
-                        var longPressed = false
+                        val down = awaitFirstDown(requireUnconsumed = false)
                         var lastX = down.position.x
-                        // 长按计时
-                        val longPress = scope.launch {
-                            kotlinx.coroutines.delay(400)
-                            if (!dragging) {
-                                longPressed = true
-                                if (!revealed) onLongClick()
+                        // 阶段 1：1s 内等待 up（点击）/ 移动（滚动）；超时 = 长按激活
+                        // （手指静止时无新事件，须用 withTimeoutOrNull 实现超时，与 detectTapGestures 同机制）
+                        // 退出类型：0=点击 1=滚动/消费 2=长按激活
+                        val exitKind = withTimeoutOrNull(longPressMillis) {
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                val change = event.changes.firstOrNull() ?: return@withTimeoutOrNull 1
+                                if (change.changedToUp()) return@withTimeoutOrNull 0
+                                if (change.isConsumed) return@withTimeoutOrNull 1
+                                if ((change.position - down.position).getDistance() > 12f) return@withTimeoutOrNull 1
                             }
+                            1
+                        }?.let { it } ?: 2
+                        if (exitKind == 1) {
+                            // 普通滚动：不消费，交给 LazyColumn
+                            return@awaitEachGesture
                         }
+                        if (exitKind == 0) {
+                            // 点击
+                            if (revealed) {
+                                scope.launch { offsetX.animateTo(0f) }
+                                revealed = false
+                                activated = false
+                                onDeactivate()
+                            } else {
+                                onClick()
+                            }
+                            return@awaitEachGesture
+                        }
+                        // 长按达成：激活 + 触觉反馈
+                        activated = true
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onActivate()
+                        // 阶段 2：同一手势继续左滑（不松手）
+                        var offset = offsetX.value
                         while (true) {
                             val event = awaitPointerEvent()
                             val change = event.changes.firstOrNull() ?: break
                             if (change.changedToUp()) break
-                            if (change.changedToDown()) continue
-                            if (change.positionChanged()) {
-                                val dx = change.position.x - lastX
-                                lastX = change.position.x
-                                if (!dragging) {
-                                    // 超过 touch slop 进入拖动模式
-                                    if (kotlin.math.abs(change.position.x - down.position.x) > 20f) {
-                                        dragging = true
-                                        longPress.cancel()
-                                    }
-                                }
-                                if (dragging) {
-                                    change.consume()
-                                    val target = (offsetX.value + dx).coerceIn(-revealPx, 0f)
-                                    android.util.Log.d("SWIPE", "dragging offset=${offsetX.value} dx=$dx")
-                                    scope.launch { offsetX.snapTo(target) }
-                                }
+                            val dx = change.position.x - lastX
+                            lastX = change.position.x
+                            if (dx != 0f && change.position.x < down.position.x) {
+                                change.consume()
+                                offset = (offset + dx).coerceIn(-revealPx, 0f)
+                                scope.launch { offsetX.snapTo(offset) }
                             }
                         }
-                        longPress.cancel()
-                        if (dragging) {
-                            scope.launch {
-                                val target = if (offsetX.value < -revealPx / 2) -revealPx else 0f
-                                offsetX.animateTo(target)
-                                revealed = target != 0f
-                            }
-                        } else if (!longPressed) {
-                            if (revealed) {
-                                scope.launch {
-                                    offsetX.animateTo(0f)
-                                    revealed = false
-                                }
-                            } else {
-                                onClick()
-                            }
+                        // 松手判定：有滑动（>48px）即吸附露出，否则收起并取消激活
+                        if (offset <= -48f) {
+                            scope.launch { offsetX.animateTo(-revealPx) }
+                            revealed = true
+                        } else {
+                            scope.launch { offsetX.animateTo(0f) }
+                            revealed = false
+                            activated = false
+                            onDeactivate()
                         }
                     }
                 },
-        ) { content() }
+        ) { content(activated) }
     }
 }
 
@@ -493,72 +505,103 @@ private fun SessionItem(
 ) {
     val session = item.session
     val hPad = if (density == DensityPreset.COMPACT) 8.dp else 12.dp
-    var menuOpen by remember { mutableStateOf(false) }
+    var activated by remember { mutableStateOf(false) }
 
     Box {
         SwipeRevealItem(
             onClick = onClick,
-            onDelete = onDelete,
-            onLongClick = { menuOpen = true },
+            onActivate = { activated = true },
+            onDeactivate = { activated = false },
             modifier = modifier.fillMaxWidth(),
-        ) {
-            Card(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = hPad),
-            ) {
-            Row(
-                Modifier.padding(10.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        session.title,
-                        style = if (density == DensityPreset.COMPACT) MaterialTheme.typography.bodyMedium
-                        else MaterialTheme.typography.titleSmall,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        buildString {
-                            if (showDevice) append("${item.profile.name} · ")
-                            append("${session.turns} 轮")
-                            if (session.isCurrent) append(" · 当前")
+            actions = { close ->
+                Row(
+                    Modifier.padding(end = hPad).fillMaxHeight(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    // 收藏按钮（次要色）
+                    IconButton(
+                        onClick = {
+                            close()
+                            onToggleFavorite()
                         },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (isFavorite) {
-                        Text("★", color = MaterialTheme.colorScheme.tertiary)
-                    }
-                    if (session.heldBy == HeldBy.OTHER) {
+                        modifier = Modifier.fillMaxHeight().width(48.dp),
+                    ) {
                         Icon(
-                            Icons.Filled.Lock,
-                            contentDescription = "只读",
-                            tint = MaterialTheme.colorScheme.tertiary,
-                            modifier = Modifier.padding(start = 4.dp),
+                            Icons.Filled.Star,
+                            contentDescription = if (isFavorite) "取消收藏" else "收藏会话",
+                            tint = if (isFavorite) MaterialTheme.colorScheme.tertiary
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    // 删除按钮（红色）——点击才删除
+                    IconButton(
+                        onClick = {
+                            close()
+                            onDelete()
+                        },
+                        modifier = Modifier.fillMaxHeight().width(56.dp).background(MaterialTheme.colorScheme.error),
+                    ) {
+                        Icon(
+                            Icons.Filled.Delete,
+                            contentDescription = "删除会话",
+                            tint = MaterialTheme.colorScheme.onError,
                         )
                     }
                 }
+            },
+        ) { act ->
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = hPad),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (act) {
+                        MaterialTheme.colorScheme.surfaceContainerHigh
+                    } else {
+                        MaterialTheme.colorScheme.surfaceContainerLow
+                    },
+                ),
+            ) {
+                Row(
+                    Modifier.padding(10.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            session.title,
+                            style = if (density == DensityPreset.COMPACT) MaterialTheme.typography.bodyMedium
+                            else MaterialTheme.typography.titleSmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            buildString {
+                                if (showDevice) append("${item.profile.name} · ")
+                                append("${session.turns} 轮")
+                                if (session.isCurrent) append(" · 当前")
+                                if (act) append(" · 左滑查看操作")
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (act) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (isFavorite) {
+                            Text("★", color = MaterialTheme.colorScheme.tertiary)
+                        }
+                        if (session.heldBy == HeldBy.OTHER) {
+                            Icon(
+                                Icons.Filled.Lock,
+                                contentDescription = "只读",
+                                tint = MaterialTheme.colorScheme.tertiary,
+                                modifier = Modifier.padding(start = 4.dp),
+                            )
+                        }
+                    }
+                }
             }
-        }
-        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-            DropdownMenuItem(
-                text = { Text(if (isFavorite) "取消收藏" else "收藏") },
-                onClick = {
-                    menuOpen = false
-                    onToggleFavorite()
-                },
-            )
-            DropdownMenuItem(
-                text = { Text("删除", color = MaterialTheme.colorScheme.error) },
-                onClick = {
-                    menuOpen = false
-                    onDelete()
-                },
-            )
-        }
         }
     }
 }
