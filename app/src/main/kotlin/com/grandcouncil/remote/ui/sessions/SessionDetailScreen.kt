@@ -86,6 +86,9 @@ import com.grandcouncil.remote.model.RemoteSession
 import com.grandcouncil.remote.model.Role
 import com.grandcouncil.remote.model.ToolCallStatus
 import com.grandcouncil.remote.ui.components.MessageContent
+import com.grandcouncil.remote.ui.components.ProcessCard
+import com.grandcouncil.remote.ui.components.ReasoningProcessStep
+import com.grandcouncil.remote.ui.components.ToolProcessStep
 import com.grandcouncil.remote.ui.export.SessionExporter
 import kotlinx.coroutines.launch
 import com.grandcouncil.remote.repository.SessionRepository
@@ -649,14 +652,30 @@ private fun MessageItem(message: RemoteMessage) {
                             )
                         }
                         if (message.toolCalls.isNotEmpty()) {
-                            message.toolCalls.forEach { tool ->
-                                HorizontalDivider(Modifier.padding(vertical = 4.dp))
-                                Text(
-                                    "🔧 ${tool.name}",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.tertiary,
-                                )
-                            }
+                            HorizontalDivider(Modifier.padding(vertical = 4.dp))
+                            // 历史消息工具区：默认折叠为尾部 2 步 + 控制条（对标 ChainOfThought）
+                            ProcessCard(
+                                steps = message.toolCalls.map {
+                                    ToolProcessStep(
+                                        id = it.id,
+                                        name = it.name,
+                                        args = it.arguments,
+                                        output = message.content,
+                                        error = "",
+                                        durationMs = 0,
+                                        status = ToolCallStatus.DONE,
+                                    )
+                                },
+                                stepContent = { step ->
+                                    Text(
+                                        "🔧 ${step.label}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.tertiary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                },
+                            )
                         }
                     }
                 }
@@ -669,63 +688,28 @@ private fun MessageItem(message: RemoteMessage) {
     }
 }
 
-/** 流式中的 assistant 消息（推理折叠 + 文本 + 工具卡片；推理头部紧凑 labelSmall） */
+/** 流式中的 assistant 消息（过程默认折叠 + 文本；推理/工具合并进 ProcessCard） */
 @Composable
 private fun StreamingItem(streaming: StreamingMessage, density: DensityPreset = DensityPreset.COMFORTABLE) {
-    var reasoningExpanded by remember { mutableStateOf(false) }
-    val compact = density == DensityPreset.COMPACT
-    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        if (streaming.reasoning.isNotEmpty()) {
-            Surface(
-                color = MaterialTheme.colorScheme.secondaryContainer,
-                shape = MaterialTheme.shapes.medium,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Column(Modifier.padding(horizontal = 8.dp, vertical = 2.dp)) {
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            "💡 推理过程",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.weight(1f),
-                        )
-                        Text(
-                            if (reasoningExpanded) "▴ 收起" else "▾ 展开",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier
-                                .clickable { reasoningExpanded = !reasoningExpanded }
-                                .padding(4.dp),
-                        )
-                    }
-                    if (reasoningExpanded) {
-                        // 展开限高 240dp + 内部滚动，避免长推理撑爆一屏
-                        Text(
-                            streaming.reasoning,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier
-                                .heightIn(max = 240.dp)
-                                .verticalScroll(rememberScrollState())
-                                .padding(top = 2.dp, bottom = 4.dp),
-                        )
-                    }
-                }
+    // 过程步骤：推理（一步）+ 工具（每工具一步），合并进 ProcessCard 默认折叠
+    val processSteps = remember(streaming) {
+        buildList {
+            if (streaming.reasoning.isNotEmpty()) add(ReasoningProcessStep(streaming.reasoning))
+            streaming.tools.forEach { t ->
+                add(ToolProcessStep(t.id, t.name, t.args, t.output, t.error, t.durationMs, t.status))
             }
         }
-        streaming.tools.forEach { tool ->
-            ToolCard(
-                id = tool.id,
-                name = tool.name,
-                args = tool.args,
-                output = tool.output,
-                error = tool.error,
-                durationMs = tool.durationMs,
-                status = tool.status,
-                density = density,
+    }
+    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        if (processSteps.isNotEmpty()) {
+            ProcessCard(
+                steps = processSteps,
+                stepContent = { step ->
+                    when (step) {
+                        is ReasoningProcessStep -> ReasoningStepRow(step)
+                        is ToolProcessStep -> ToolStepRow(step, density)
+                    }
+                },
             )
         }
         if (streaming.text.isNotEmpty()) {
@@ -740,6 +724,133 @@ private fun StreamingItem(streaming: StreamingMessage, density: DensityPreset = 
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.padding(12.dp),
                 )
+            }
+        }
+    }
+}
+
+/** 过程单步：推理行（标题 + 点击展开/收起，限高内滚） */
+@Composable
+private fun ReasoningStepRow(step: ReasoningProcessStep) {
+    var expanded by remember { mutableStateOf(false) }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable { expanded = !expanded }
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            "💡 推理过程",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            if (expanded) "▴" else "▾",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.primary,
+        )
+    }
+    if (expanded) {
+        Text(
+            step.text,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier
+                .heightIn(max = 240.dp)
+                .verticalScroll(rememberScrollState())
+                .padding(top = 2.dp, bottom = 4.dp),
+        )
+    }
+}
+
+/** 过程单步：工具行（状态点 + 名称 + 时长 + ▾ 详情；展开限高内滚） */
+@Composable
+private fun ToolStepRow(step: ToolProcessStep, density: DensityPreset = DensityPreset.COMFORTABLE) {
+    var expanded by remember { mutableStateOf(false) }
+    val compact = density == DensityPreset.COMPACT
+    val statusColor = when {
+        step.isError -> ReasonixColors.err
+        step.isRunning -> ReasonixColors.warn
+        else -> ReasonixColors.success
+    }
+    Column(Modifier.fillMaxWidth()) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clickable { expanded = !expanded }
+                .padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (step.isRunning) {
+                CircularProgressIndicator(
+                    modifier = Modifier.padding(end = 6.dp),
+                    strokeWidth = 2.dp,
+                    color = statusColor,
+                )
+            } else {
+                Text("✓", color = statusColor, modifier = Modifier.padding(end = 6.dp))
+            }
+            Text(
+                step.label,
+                style = MaterialTheme.typography.labelSmall,
+                color = if (step.isError) ReasonixColors.err else MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            if (step.durationMs > 0 && !compact) {
+                Text(
+                    "${step.durationMs / 1000.0}s",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(end = 4.dp),
+                )
+            }
+            Text(
+                if (expanded) "▴ 收起" else "▾ 详情",
+                style = MaterialTheme.typography.labelSmall,
+                color = if (step.isError) ReasonixColors.err else MaterialTheme.colorScheme.primary,
+            )
+        }
+        if (expanded) {
+            // 展开限高 200dp + 内部滚动，避免长输出撑屏
+            Column(
+                Modifier
+                    .heightIn(max = 200.dp)
+                    .verticalScroll(rememberScrollState())
+                    .padding(bottom = 4.dp),
+            ) {
+                if (step.args.isNotBlank()) {
+                    Text(
+                        step.args,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontFamily = FontFamily.Monospace,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 4,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                if (step.output.isNotEmpty()) {
+                    HorizontalDivider(Modifier.padding(vertical = 4.dp))
+                    Text(
+                        step.output.take(500),
+                        style = MaterialTheme.typography.bodySmall,
+                        fontFamily = FontFamily.Monospace,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 8,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                if (step.isError) {
+                    HorizontalDivider(Modifier.padding(vertical = 4.dp))
+                    Text(
+                        "✗ ${step.error}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = ReasonixColors.err,
+                    )
+                }
             }
         }
     }
