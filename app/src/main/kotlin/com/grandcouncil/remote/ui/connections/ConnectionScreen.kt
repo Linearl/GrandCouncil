@@ -1,5 +1,6 @@
 package com.grandcouncil.remote.ui.connections
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -402,7 +403,10 @@ private fun DropdownField(
         ListItem(
             headlineContent = { Text(value) },
             overlineContent = { Text(label) },
-            modifier = Modifier.fillMaxWidth(),
+            // 点击整行展开菜单（修复：此前无 clickable，菜单永远打不开）
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onToggle() },
         )
         DropdownMenu(expanded = expanded, onDismissRequest = onToggle) { menu() }
     }
