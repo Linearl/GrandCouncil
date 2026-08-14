@@ -54,17 +54,17 @@ data class ReasoningProcessStep(val text: String) : ProcessStep {
 }
 
 /**
- * 过程聚合容器：多步工具/推理过程**默认折叠**，只展示尾部若干步；
- * 顶部控制条点击展开/收起全部（对标 rikkahub ChainOfThought）。
+ * 过程聚合容器：多步工具/推理过程**整体默认折叠**（不显示任何步骤），
+ * 只保留控制条一行 + 最终输出（用户要求：只看结论，不看过程）；
+ * 控制条点击展开/收起全部（对标 rikkahub ChainOfThought）。
  *
- * 折叠态高度预算：控制条（≈32dp）+ 尾部 N 步（每步 ≈32dp）；步骤数 ≤
- * collapsedVisibleCount 时不出现折叠壳（小过程直接展示）。
- * 折叠态控制条右侧显示失败角标「⚠ N 个失败」（步骤 error 非空时）。
+ * 折叠态高度预算：控制条（≈32dp）；工作中控制条显示「⚙ 执行中（N 步）」，
+ * 完成显示「▾ 展开全部 N 步」；失败步骤在控制条右侧显示「⚠ N 个失败」。
  */
 @Composable
 fun ProcessCard(
     steps: List<ProcessStep>,
-    collapsedVisibleCount: Int = 2,
+    collapsedVisibleCount: Int = 0,
     modifier: Modifier = Modifier,
     stepContent: @Composable (ProcessStep) -> Unit,
 ) {
@@ -72,8 +72,9 @@ fun ProcessCard(
     var expanded by remember { mutableStateOf(false) }
     val total = steps.size
     val showToggle = total > collapsedVisibleCount
-    val visible = if (expanded) steps else steps.takeLast(collapsedVisibleCount)
+    val visible = if (expanded) steps else emptyList()
     val failCount = steps.count { it.isError }
+    val running = steps.any { it.isRunning }
 
     Surface(
         modifier = modifier.animateContentSize(),
@@ -91,7 +92,11 @@ fun ProcessCard(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        if (expanded) "▴ 收起" else "▾ 展开全部 ${total - collapsedVisibleCount} 步",
+                        when {
+                            expanded -> "▴ 收起"
+                            running -> "⚙ 执行中（${total} 步）"
+                            else -> "▾ 展开全部 ${total} 步"
+                        },
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.primary,
                         maxLines = 1,

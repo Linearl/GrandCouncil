@@ -1158,9 +1158,9 @@ private fun groupMessages(messages: List<RemoteMessage>): List<MessageGroup> {
                         j++
                     }
                     cur.role == Role.ASSISTANT && cur.toolCalls.isEmpty() -> {
+                        // 阶段性文本（agent 边做边输出）不结束段——后面可能继续工具调用
                         if (cur.content.isNotBlank()) finalText = cur.content
                         j++
-                        break
                     }
                     else -> break
                 }
@@ -1194,14 +1194,34 @@ private fun groupMessages(messages: List<RemoteMessage>): List<MessageGroup> {
                 i++
             }
         } else {
-            result += MessageGroup.Single(m)
+            if (m.role == Role.TOOL) {
+                // 孤立 TOOL（前面无 assistant 工具段，如 serve 返回截断段尾）→
+                // 单步 Process 组，保持"工具调用整体折叠"语义（不平铺）
+                result += MessageGroup.Process(
+                    steps = listOf(
+                        ToolProcessStep(
+                            id = m.id,
+                            name = "工具调用",
+                            args = "",
+                            output = m.content,
+                            error = "",
+                            durationMs = 0,
+                            status = ToolCallStatus.DONE,
+                        ),
+                    ),
+                    finalText = "",
+                    key = "proc-single-${m.id}",
+                )
+            } else {
+                result += MessageGroup.Single(m)
+            }
             i++
         }
     }
     return result
 }
 
-/** 历史过程段渲染：ProcessCard（默认折叠尾部 2 步 + 控制条）+ 最终文本气泡 */
+/** 历史过程段渲染：ProcessCard（默认折叠全部步骤 + 控制条）+ 最终文本气泡 */
 @Composable
 private fun ProcessHistoryCard(group: MessageGroup.Process) {
     Column(
