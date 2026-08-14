@@ -39,10 +39,15 @@ import androidx.compose.ui.unit.dp
 import com.grandcouncil.remote.ui.config.ConfigScreen
 import com.grandcouncil.remote.ui.demo.DemoChatScreen
 import com.grandcouncil.remote.connection.ConnectionProfile
+import com.grandcouncil.remote.connection.ConnectionStore
+import com.grandcouncil.remote.model.RemoteSession
+import com.grandcouncil.remote.repository.SessionRepository
 import com.grandcouncil.remote.ui.sessions.AggregatedSession
 import com.grandcouncil.remote.ui.sessions.SessionDetailScreen
 import com.grandcouncil.remote.ui.sessions.SessionDrawerContent
 import com.grandcouncil.remote.ui.wizard.WizardScreen
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
 
 /** 主区页面 */
@@ -61,6 +66,29 @@ fun MainScreen() {
     var selectedSession by remember { mutableStateOf<AggregatedSession?>(null) }
     // 草稿聊天（新建会话后进入空白聊天，session=null）
     var draftProfile by remember { mutableStateOf<ConnectionProfile?>(null) }
+    val appContext = LocalContext.current.applicationContext
+    val prefs = remember { AppPreferences(appContext) }
+
+    // C5 启动恢复：上次浏览位置（连接+会话）→ 自动进入；此后记录浏览位置
+    LaunchedEffect(Unit) {
+        val lastProfileId = prefs.lastProfileId.firstOrNull()
+        val lastSessionId = prefs.lastSessionId.firstOrNull()
+        if (lastProfileId != null && lastSessionId != null && selectedSession == null) {
+            val profiles: List<ConnectionProfile> =
+                runCatching { ConnectionStore(appContext).profiles.first() }.getOrDefault(emptyList())
+            val profile = profiles.firstOrNull { it.id == lastProfileId } ?: return@LaunchedEffect
+            val sessions: List<RemoteSession> =
+                SessionRepository().listSessions(profile).getOrNull() ?: return@LaunchedEffect
+            val target = sessions.firstOrNull { it.id == lastSessionId } ?: return@LaunchedEffect
+            selectedSession = AggregatedSession(target, profile)
+            section = MainSection.CHAT
+        }
+    }
+
+    // 浏览位置持久化：选中会话 / 新建草稿 / 退出会话
+    fun rememberPosition(profile: ConnectionProfile?, sessionId: String?) {
+        scope.launch { prefs.setLastPosition(profile?.id, sessionId) }
+    }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -73,6 +101,7 @@ fun MainScreen() {
                         selectedSession = it
                         draftProfile = null
                         section = MainSection.CHAT
+                        rememberPosition(it.profile, it.session.id)
                         scope.launch { drawerState.close() }
                     },
                     onOpenConfig = {
@@ -87,6 +116,7 @@ fun MainScreen() {
                         selectedSession = null
                         draftProfile = profile
                         section = MainSection.CHAT
+                        rememberPosition(profile, null)
                         scope.launch { drawerState.close() }
                     },
                 )

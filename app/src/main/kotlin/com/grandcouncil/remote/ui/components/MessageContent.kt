@@ -28,6 +28,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
 
 // ---- 代码块分段（``` 围栏提取） ----
 
@@ -231,12 +232,30 @@ fun CodeBlock(code: String, language: String?) {
             Row(
                 Modifier.fillMaxWidth().padding(start = 10.dp, end = 4.dp, top = 4.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
             ) {
                 Text(
                     language ?: "code",
                     style = MaterialTheme.typography.labelSmall,
                     color = palette.comment,
                 )
+                // T6 代码一键复制（2s 反馈）
+                var copied by remember { mutableStateOf(false) }
+                val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+                val scope = androidx.compose.runtime.rememberCoroutineScope()
+                TextButton(onClick = {
+                    clipboard.setText(androidx.compose.ui.text.AnnotatedString(code))
+                    copied = true
+                    scope.launch {
+                        kotlinx.coroutines.delay(2000)
+                        copied = false
+                    }
+                }) {                    Text(
+                        if (copied) "已复制 ✓" else "复制",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = palette.function,
+                    )
+                }
             }
             Box(
                 Modifier
@@ -276,7 +295,6 @@ fun MessageContent(
     style: TextStyle,
     color: Color,
     modifier: Modifier = Modifier,
-    textMaxLines: Int = 15,
 ) {
     val segments = remember(content) { splitCodeBlocks(content) }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -284,13 +302,18 @@ fun MessageContent(
             if (seg.isCode) {
                 CodeBlock(seg.text, seg.language)
             } else if (seg.text.isNotBlank()) {
-                Text(
-                    seg.text,
-                    style = style,
-                    color = color,
-                    maxLines = if (textMaxLines < 0) Int.MAX_VALUE else textMaxLines,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                // T6 Markdown 渲染（标题/列表/引用/表格/行内码/粗斜体）；超长纯文本限高防撑屏
+                if (seg.text.lines().size > 60) {
+                    Text(
+                        seg.text,
+                        style = style,
+                        color = color,
+                        maxLines = 15,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                } else {
+                    MarkdownText(seg.text, style, color)
+                }
             }
         }
     }

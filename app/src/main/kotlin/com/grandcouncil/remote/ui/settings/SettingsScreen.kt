@@ -16,6 +16,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -49,10 +50,12 @@ fun SettingsScreen(onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     var theme by remember { mutableStateOf(ThemePreset.WARM) }
     var density by remember { mutableStateOf(DensityPreset.COMFORTABLE) }
+    var biometricLock by remember { mutableStateOf(false) }
 
     androidx.compose.runtime.LaunchedEffect(Unit) {
         prefs.theme.collect { theme = it }
         prefs.density.collect { density = it }
+        prefs.biometricLock.collect { biometricLock = it }
     }
 
     Scaffold(
@@ -116,6 +119,31 @@ fun SettingsScreen(onBack: () -> Unit) {
                         modifier = Modifier.padding(start = 8.dp),
                     )
                 }
+            }
+            HorizontalDivider(Modifier.padding(vertical = 12.dp))
+            SectionTitle("安全")
+            // A4 生物识别锁开关（打开 App / 回前台时验证身份）
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("生物识别锁", style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        if (biometricLock) "打开 App 与返回前台时需指纹/面容验证" else "关闭（凭据仍加密存储于设备 Keystore）",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = biometricLock,
+                    onCheckedChange = { on ->
+                        biometricLock = on
+                        scope.launch { prefs.setBiometricLock(on) }
+                    },
+                )
             }
             HorizontalDivider(Modifier.padding(vertical = 12.dp))
             SectionTitle("关于")

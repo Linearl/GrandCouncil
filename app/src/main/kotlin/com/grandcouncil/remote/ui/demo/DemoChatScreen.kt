@@ -213,8 +213,7 @@ private fun DemoMessageItem(m: DemoMsg) {
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.padding(10.dp),
-                        textMaxLines = -1,
-                    )
+                        )
                 }
             }
         }

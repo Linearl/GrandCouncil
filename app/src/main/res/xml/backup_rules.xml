@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A4：凭据相关数据不参与云备份（Keystore 密钥本身不备份，密文备份会导致恢复后不可解密） -->
+<full-backup-content>
+    <exclude domain="file" path="datastore/connections.preferences_pb" />
+    <exclude domain="file" path="datastore/connections.preferences_pb.tmp" />
+</full-backup-content>

@@ -67,4 +67,7 @@ dependencies {
 
     // 连接配置持久化（token 安全存储见 M2 Keystore 基线）
     implementation(libs.androidx.datastore.preferences)
+
+    // A4 生物识别锁
+    implementation(libs.androidx.biometric)
 }

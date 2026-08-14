@@ -37,8 +37,16 @@ class SessionRepository {
 
     /** serve 状态（会话页服务器信息行） */
     suspend fun getStatus(profile: ConnectionProfile): Result<StatusDto> =
+        runCatching {            HttpClientFactory.createApi(profile).getStatus()
+        }
+
+    /** T7 上下文用量：GET /context → (used, window) token 数 */
+    suspend fun getContext(profile: ConnectionProfile): Result<Pair<Int, Int>> =
         runCatching {
-            HttpClientFactory.createApi(profile).getStatus()
+            val json = HttpClientFactory.createApi(profile).context(null)
+            val used = (json["used"] as? JsonPrimitive)?.content?.toIntOrNull() ?: 0
+            val window = (json["window"] as? JsonPrimitive)?.content?.toIntOrNull() ?: 0
+            used to window
         }
 
     /** 发送消息（state-changing，JSON Content-Type） */

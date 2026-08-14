@@ -53,6 +53,9 @@ data class SessionDetailUiState(
     /** 工具审批模式：ask | auto | yolo（PC 端三档，避免被审批卡住） */
     val approvalMode: String? = null,
     val error: String? = null,
+    /** T7 上下文用量：(used, window) token；null=未加载/不可用 */
+    val contextUsed: Int? = null,
+    val contextWindow: Int? = null,
     /** T5 发送失败后待恢复的输入框文本（UI 消费后调 clearRestoreInput） */
     val restoreInput: String? = null,
 )
@@ -114,6 +117,12 @@ class SessionDetailViewModel(
                 _uiState.value = _uiState.value.copy(
                     approvalMode = status.toolApprovalMode ?: ApprovalMode.ASK.wire,
                 )
+            }
+            // T7 上下文用量（used/window）
+            repository.getContext(profile).onSuccess { (used, window) ->
+                if (window > 0) {
+                    _uiState.value = _uiState.value.copy(contextUsed = used, contextWindow = window)
+                }
             }
             }
         }

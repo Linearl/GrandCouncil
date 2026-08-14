@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.grandcouncil.remote.security.CredentialCipher
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.builtins.ListSerializer
@@ -13,10 +14,9 @@ private val Context.connectionDataStore by preferencesDataStore(name = "connecti
 
 /**
  * 连接配置持久化（DataStore Preferences，JSON 序列化）。
- *
- * TODO(M2 安全基线)：token/password 目前随 JSON 明文落盘（第 3 条：
- * token 存 Android Keystore/EncryptedSharedPreferences，不落日志）。
- * M1 先以 DataStore 打通链路，M2 迁移加密存储。
+ * A4 安全基线：token/password 在 Store 边界用 Android Keystore AES/GCM 加密后落盘
+ * （JSON 里只有密文）；读取时解密回明文。密钥随设备 Keystore，卸载重装自动清除。
+ * 老版本明文数据：解密失败时保留原文（平滑迁移）。
  */
 class ConnectionStore(private val context: Context) {
 
@@ -29,18 +29,21 @@ class ConnectionStore(private val context: Context) {
 
     private val serializer = ListSerializer(ConnectionProfile.serializer())
 
-    /** 连接列表流 */
+    /** 连接列表流（token/password 已解密为明文） */
     val profiles: Flow<List<ConnectionProfile>> = context.connectionDataStore.data.map { prefs ->
         val raw = prefs[profilesKey] ?: return@map emptyList()
-        runCatching { json.decodeFromString(serializer, raw) }.getOrDefault(emptyList())
+        runCatching { json.decodeFromString(serializer, raw) }
+            .getOrDefault(emptyList())
+            .map { it.decryptCredentials() }
     }
 
     /** 当前使用的连接 id 流 */
     val activeId: Flow<String?> = context.connectionDataStore.data.map { it[activeIdKey] }
 
     suspend fun save(profiles: List<ConnectionProfile>) {
+        val encrypted = profiles.map { it.encryptCredentials() }
         context.connectionDataStore.edit { prefs ->
-            prefs[profilesKey] = json.encodeToString(serializer, profiles)
+            prefs[profilesKey] = json.encodeToString(serializer, encrypted)
         }
     }
 
@@ -49,4 +52,16 @@ class ConnectionStore(private val context: Context) {
             if (id == null) prefs.remove(activeIdKey) else prefs[activeIdKey] = id
         }
     }
+
+    /** 加密边界：明文 → 密文（空凭据跳过；加密失败保留原文避免数据丢失） */
+    private fun ConnectionProfile.encryptCredentials(): ConnectionProfile = copy(
+        token = if (token.isNotBlank()) CredentialCipher.encrypt(token) ?: token else token,
+        password = if (password.isNotBlank()) CredentialCipher.encrypt(password) ?: password else password,
+    )
+
+    /** 解密边界：密文 → 明文（解密失败视为老明文，保留原文） */
+    private fun ConnectionProfile.decryptCredentials(): ConnectionProfile = copy(
+        token = if (token.isNotBlank()) CredentialCipher.decrypt(token) ?: token else token,
+        password = if (password.isNotBlank()) CredentialCipher.decrypt(password) ?: password else password,
+    )
 }

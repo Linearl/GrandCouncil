@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A4（Android 12+）：连接凭据密文排除云备份与设备迁移 -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="file" path="datastore/connections.preferences_pb" />
+        <exclude domain="file" path="datastore/connections.preferences_pb.tmp" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="file" path="datastore/connections.preferences_pb" />
+        <exclude domain="file" path="datastore/connections.preferences_pb.tmp" />
+    </device-transfer>
+</data-extraction-rules>

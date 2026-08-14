@@ -35,11 +35,14 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -64,6 +67,7 @@ import com.grandcouncil.remote.model.Role
 import com.grandcouncil.remote.model.ToolCallStatus
 import com.grandcouncil.remote.ui.components.MessageContent
 import com.grandcouncil.remote.ui.export.SessionExporter
+import kotlinx.coroutines.launch
 import com.grandcouncil.remote.repository.SessionRepository
 import com.grandcouncil.remote.ui.theme.ReasonixColors
 
@@ -90,6 +94,7 @@ fun SessionDetailScreen(
     val state by viewModel.uiState.collectAsState()
     var input by remember { mutableStateOf("") }
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     // T5 发送失败恢复输入框文本
     LaunchedEffect(state.restoreInput) {
         state.restoreInput?.let { restored ->
@@ -188,6 +193,22 @@ fun SessionDetailScreen(
         },
         bottomBar = {
             Column {
+                // T7 上下文用量条（used/window token）
+                val used = state.contextUsed
+                val window = state.contextWindow
+                if (used != null && window != null && window > 0) {
+                    val pct = (used * 100 / window).coerceIn(0, 100)
+                    Text(
+                        "上下文 ${pct}%（${used / 1000f}k / ${window / 1000f}k tokens）",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (pct > 85) MaterialTheme.colorScheme.error
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                            .padding(horizontal = 16.dp, vertical = 2.dp),
+                    )
+                }
                 if (state.running) {
                     Text(
                         state.statusText,
@@ -214,6 +235,12 @@ fun SessionDetailScreen(
                         input = ""
                     },
                     onStop = { viewModel.cancel() },
+                    voiceSlot = {
+                        VoiceInputButton(
+                            onResult = { text -> input = if (input.isBlank()) text else "$input $text" },
+                            readOnly = session?.heldBy == HeldBy.OTHER,
+                        )
+                    },
                 )
             }
         },
@@ -248,47 +275,150 @@ fun SessionDetailScreen(
                 }
 
                 else -> {
-                    LazyColumn(
-                        state = listState,
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxWidth()
-                            // 点击非输入区域收起软键盘（clearFocus + hide）
-                            .pointerInput(Unit) {
-                                detectTapGestures(
-                                    onTap = {
-                                        focusManager.clearFocus()
-                                        keyboardController?.hide()
-                                    },
-                                )
-                            },
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 10.dp),
-                    ) {
-                    // 不用 key：历史消息 id 无稳定来源，key 冲突会静默跳过渲染
-                    items(state.messages) { message ->
-                        MessageItem(message)
-                    }
-                    state.streaming?.let { streaming ->
-                        if (!streaming.isEmpty) {
-                            item(key = "streaming") {
-                                StreamingItem(streaming)
+                    Box(Modifier.weight(1f).fillMaxWidth()) {
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                // 点击非输入区域收起软键盘（clearFocus + hide）
+                                .pointerInput(Unit) {
+                                    detectTapGestures(
+                                        onTap = {
+                                            focusManager.clearFocus()
+                                            keyboardController?.hide()
+                                        },
+                                    )
+                                },
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 10.dp),
+                        ) {
+                        // 不用 key：历史消息 id 无稳定来源，key 冲突会静默跳过渲染
+                        items(state.messages) { message ->
+                            MessageItem(message)
+                        }
+                        state.streaming?.let { streaming ->
+                            if (!streaming.isEmpty) {
+                                item(key = "streaming") {
+                                    StreamingItem(streaming)
+                                }
+                            }
+                        }
+                        state.pendingApproval?.let { approval ->
+                            item(key = "approval") {
+                                ApprovalCard(approval, viewModel)
                             }
                         }
                     }
-                    state.pendingApproval?.let { approval ->
-                        item(key = "approval") {
-                            ApprovalCard(approval, viewModel)
+                        // T6 回到底部：离开底部（约 3 条）时右下角悬浮 ↓
+                        val totalCount = state.messages.size + if (state.streaming != null) 1 else 0
+                        val awayFromBottom by remember {
+                            derivedStateOf {
+                                val last = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+                                totalCount > 1 && last < totalCount - 3
+                            }
+                        }
+                        if (awayFromBottom) {
+                            androidx.compose.material3.FloatingActionButton(
+                                onClick = {
+                                    scope.launch { listState.animateScrollToItem((totalCount - 1).coerceAtLeast(0)) }
+                                },
+                                modifier = Modifier
+                                    .align(Alignment.BottomEnd)
+                                    .padding(14.dp),
+                                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                            ) {
+                                Text("↓")
+                            }
                         }
                     }
-                }
                 }
             }
         }
     }
 }
 
-/** 底部输入栏：普通态=输入框+发送；busy 态=Stop 键（输入清空时） */
+/**
+ * T8 语音听写按钮：SpeechRecognizer 识别结果回调 onResult（听写→编辑→发送两级）。
+ * 点击开始/结束听写；RECORD_AUDIO 未授权时先请求。
+ */
+@Composable
+private fun VoiceInputButton(
+    onResult: (String) -> Unit,
+    readOnly: Boolean,
+) {
+    val context = LocalContext.current
+    var listening by remember { mutableStateOf(false) }
+
+    val recognizer = remember {
+        android.speech.SpeechRecognizer.createSpeechRecognizer(context).apply {
+            setRecognitionListener(object : android.speech.RecognitionListener {
+                override fun onReadyForSpeech(params: android.os.Bundle?) {}
+                override fun onBeginningOfSpeech() {}
+                override fun onRmsChanged(rmsdB: Float) {}
+                override fun onBufferReceived(buffer: ByteArray?) {}
+                override fun onEndOfSpeech() { listening = false }
+                override fun onError(error: Int) { listening = false }
+                override fun onResults(results: android.os.Bundle?) {
+                    listening = false
+                    val text = results?.getStringArrayList(android.speech.SpeechRecognizer.RESULTS_RECOGNITION)
+                        ?.firstOrNull()
+                    if (!text.isNullOrBlank()) onResult(text)
+                }
+                override fun onPartialResults(partialResults: android.os.Bundle?) {}
+                override fun onEvent(eventType: Int, params: android.os.Bundle?) {}
+            })
+        }
+    }
+
+    fun start() {
+        listening = true
+        runCatching {
+            recognizer.startListening(
+                android.content.Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                    putExtra(
+                        android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                        android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM,
+                    )
+                    putExtra(android.speech.RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+                },
+            )
+        }.onFailure { listening = false }
+    }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted -> if (granted) start() }
+    DisposableEffect(Unit) { onDispose { recognizer.destroy() } }
+
+    IconButton(
+        onClick = {
+            if (readOnly) return@IconButton
+            if (listening) {
+                recognizer.cancel()
+                listening = false
+            } else if (
+                androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) !=
+                android.content.pm.PackageManager.PERMISSION_GRANTED
+            ) {
+                permissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+            } else {
+                start()
+            }
+        },
+        modifier = Modifier.background(
+            if (listening) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.surfaceVariant,
+            CircleShape,
+        ),
+    ) {
+        Text(
+            if (listening) "⏹" else "🎤",
+            color = if (listening) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onSurface,
+        )
+    }
+}
+
+/** 底部输入栏：普通态=输入框+发送；busy 态=Stop 键（输入清空时）；语音听写按钮插槽 */
 @Composable
 private fun InputBar(
     input: String,
@@ -297,6 +427,7 @@ private fun InputBar(
     onInput: (String) -> Unit,
     onSend: () -> Unit,
     onStop: () -> Unit,
+    voiceSlot: @Composable () -> Unit = {},
 ) {
     Row(
         Modifier
@@ -306,6 +437,7 @@ private fun InputBar(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        voiceSlot()
         OutlinedTextField(
             value = input,
             onValueChange = onInput,
@@ -471,7 +603,6 @@ private fun StreamingItem(streaming: StreamingMessage) {
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.padding(12.dp),
-                    textMaxLines = -1,
                 )
             }
         }
