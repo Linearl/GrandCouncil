@@ -50,8 +50,10 @@ class MainActivity : FragmentActivity() {
             val context = LocalContext.current
             val prefs = remember { AppPreferences(context) }
             var themePreset by remember { mutableStateOf(ThemePreset.WARM) }
+            var amoledDark by remember { mutableStateOf(false) }
             androidx.compose.runtime.LaunchedEffect(Unit) {
                 prefs.theme.collect { themePreset = it }
+                prefs.amoledDark.collect { amoledDark = it }
             }
             // A4 生物识别锁：开关开启且设备支持时进入前验证
             val locked by lockState.collectAsState()
@@ -66,6 +68,7 @@ class MainActivity : FragmentActivity() {
             GrandCouncilTheme(
                 preset = themePreset,
                 darkTheme = isSystemInDarkTheme(),
+                amoledDark = amoledDark,
             ) {
                 if (locked) {
                     LockScreen(

@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -326,7 +327,20 @@ private fun ProjectGroupedList(
     onToggleFavorite: (AggregatedSession) -> Unit,
 ) {
     val vPad = if (density == DensityPreset.COMPACT) 2.dp else 4.dp
-    LazyColumn(Modifier.fillMaxSize()) {
+    val listState = rememberLazyListState()
+    // 当前会话自动定位（仅首次进入时，滚动后不打扰）
+    var autoLocated by remember { mutableStateOf(false) }
+    LaunchedEffect(groups) {
+        if (!autoLocated) {
+            val idx = groups.flatMap { it.second }.indexOfFirst { it.session.isCurrent }
+            if (idx >= 0) {
+                listState.scrollToItem(idx)
+                autoLocated = true
+            }
+        }
+    }
+
+    LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
         groups.forEach { (profile, sessions) ->
             item(key = "proj-${profile.id}") {
                 Text(
@@ -347,7 +361,9 @@ private fun ProjectGroupedList(
                     density = density,
                     showDevice = false,
                     isFavorite = "${item.profile.id}:${item.session.id}" in favorites,
-                    modifier = Modifier.padding(vertical = vPad),
+                    modifier = Modifier
+                        .animateItem()
+                        .padding(vertical = vPad),
                     onClick = { onOpen(item) },
                     onDelete = { onDelete(item) },
                     onToggleFavorite = { onToggleFavorite(item) },
@@ -370,8 +386,20 @@ private fun SessionGroupedList(
 ) {
     val grouped = remember(sessions) { groupByDay(sessions) }
     val vPad = if (density == DensityPreset.COMPACT) 2.dp else 4.dp
+    val listState = rememberLazyListState()
+    // 当前会话自动定位（仅首次进入时）
+    var autoLocated by remember { mutableStateOf(false) }
+    LaunchedEffect(sessions) {
+        if (!autoLocated) {
+            val idx = sessions.indexOfFirst { it.session.isCurrent }
+            if (idx >= 0) {
+                listState.scrollToItem(idx)
+                autoLocated = true
+            }
+        }
+    }
 
-    LazyColumn(Modifier.fillMaxSize()) {
+    LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
         grouped.forEach { (label, list) ->
             item(key = "day-$label") {
                 Text(
@@ -387,7 +415,9 @@ private fun SessionGroupedList(
                     density = density,
                     showDevice = multiDevice,
                     isFavorite = "${item.profile.id}:${item.session.id}" in favorites,
-                    modifier = Modifier.padding(vertical = vPad),
+                    modifier = Modifier
+                        .animateItem()
+                        .padding(vertical = vPad),
                     onClick = { onOpen(item) },
                     onDelete = { onDelete(item) },
                     onToggleFavorite = { onToggleFavorite(item) },
@@ -561,6 +591,7 @@ private fun SessionItem(
     val session = item.session
     val hPad = if (density == DensityPreset.COMPACT) 8.dp else 12.dp
     var activated by remember { mutableStateOf(false) }
+    val haptic = LocalHapticFeedback.current
 
     Box {
         SwipeRevealItem(
@@ -588,9 +619,10 @@ private fun SessionItem(
                             else MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    // 删除按钮（红色）——点击才删除
+                    // 删除按钮（红色）——点击才删除（触觉反馈）
                     IconButton(
                         onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                             close()
                             onDelete()
                         },

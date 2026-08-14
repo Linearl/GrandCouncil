@@ -19,10 +19,11 @@ import kotlinx.serialization.json.buildJsonObject
  */
 class SessionRepository {
 
-    /** 列出指定远端连接的会话（M1 核心链路） */
+    /** 列出指定远端连接的会话（M1 核心链路；过滤 -recovery- 恢复副本，serve 端未过滤的兜底） */
     suspend fun listSessions(profile: ConnectionProfile): Result<List<RemoteSession>> =
         runCatching {
             AgentAdapterFactory.create(profile).listSessions()
+                .filter { s -> !s.path.contains("-recovery-") }
         }
 
     /** 只读加载会话历史（内部切换 serve 当前会话） */

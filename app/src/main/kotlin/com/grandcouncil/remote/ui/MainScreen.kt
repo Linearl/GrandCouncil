@@ -157,8 +157,8 @@ fun MainScreen() {
                     }
                 }
 
-                MainSection.CONFIG -> ConfigScreen()
-                MainSection.WIZARD -> WizardScreen()
+                MainSection.CONFIG -> ConfigScreen(Modifier.padding(padding))
+                MainSection.WIZARD -> WizardScreen(Modifier.padding(padding))
                 MainSection.DEMO -> DemoChatScreen(onBack = { section = MainSection.CHAT })
             }
         }

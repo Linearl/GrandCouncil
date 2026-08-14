@@ -19,6 +19,8 @@ class AppPreferences(private val context: Context) {
     private val densityKey = stringPreferencesKey("density_preset")
     // A4 生物识别锁开关
     private val biometricLockKey = booleanPreferencesKey("biometric_lock")
+    // P2 AMOLED 纯黑（dark 模式背景强制纯黑）
+    private val amoledKey = booleanPreferencesKey("amoled_dark")
     // C5 启动恢复：上次连接与会话（浏览位置）
     private val lastProfileIdKey = stringPreferencesKey("last_profile_id")
     private val lastSessionIdKey = stringPreferencesKey("last_session_id")
@@ -38,6 +40,15 @@ class AppPreferences(private val context: Context) {
 
     val biometricLock: Flow<Boolean> = context.appDataStore.data.map { prefs ->
         prefs[biometricLockKey] ?: false // 默认关闭
+    }
+
+    /** P2 AMOLED 纯黑：dark 模式背景/表面强制 0xFF000000（默认关闭） */
+    val amoledDark: Flow<Boolean> = context.appDataStore.data.map { prefs ->
+        prefs[amoledKey] ?: false
+    }
+
+    suspend fun setAmoledDark(enabled: Boolean) {
+        context.appDataStore.edit { it[amoledKey] = enabled }
     }
 
     suspend fun setBiometricLock(enabled: Boolean) {

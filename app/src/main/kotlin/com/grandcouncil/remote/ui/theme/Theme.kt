@@ -137,12 +137,20 @@ enum class DensityPreset(val label: String) {
 fun GrandCouncilTheme(
     preset: ThemePreset = ThemePreset.WARM,
     darkTheme: Boolean = isSystemInDarkTheme(),
+    amoledDark: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     val palette = (if (darkTheme) ReasonixPalettes[preset]?.first
     else ReasonixPalettes[preset]?.second) ?: ReasonixPalettes.getValue(ThemePreset.WARM).first
 
     val colorScheme = if (darkTheme) {
+        // P2 AMOLED 纯黑：暗色下背景/表面强制纯黑（OLED 省电 + 对比度）
+        val bg = if (amoledDark) Color.Black else hex("#14171c")
+        val surface = if (amoledDark) Color.Black else hex("#1a1e24")
+        val surfaceVariant = if (amoledDark) hex("#0f0f0f") else hex("#232830")
+        val container = if (amoledDark) hex("#0a0a0a") else hex("#1e232a")
+        val containerHigh = if (amoledDark) hex("#141414") else hex("#252b33")
+        val containerHighest = if (amoledDark) hex("#1a1a1a") else hex("#2c333c")
         darkColorScheme(
             primary = palette.accent,
             onPrimary = if (darkTheme) Color.White else Color.White,
@@ -153,15 +161,15 @@ fun GrandCouncilTheme(
             secondaryContainer = palette.diffDel,
             onSecondaryContainer = palette.muted,
             tertiary = palette.info,
-            background = if (darkTheme) hex("#14171c") else hex("#faf7f2"),
+            background = bg,
             onBackground = if (darkTheme) palette.muted else hex("#33271a"),
-            surface = if (darkTheme) hex("#1a1e24") else Color.White,
+            surface = surface,
             onSurface = if (darkTheme) palette.muted else hex("#33271a"),
-            surfaceVariant = if (darkTheme) hex("#232830") else hex("#f6f1e8"),
+            surfaceVariant = surfaceVariant,
             onSurfaceVariant = if (darkTheme) palette.faint else hex("#6b5d4e"),
-            surfaceContainer = if (darkTheme) hex("#1e232a") else hex("#fffdf9"),
-            surfaceContainerHigh = if (darkTheme) hex("#252b33") else hex("#f7f2ea"),
-            surfaceContainerHighest = if (darkTheme) hex("#2c333c") else hex("#f0e8dc"),
+            surfaceContainer = container,
+            surfaceContainerHigh = containerHigh,
+            surfaceContainerHighest = containerHighest,
             outline = palette.border,
             outlineVariant = if (darkTheme) hex("#2c333c") else hex("#eee5d8"),
             error = palette.danger,

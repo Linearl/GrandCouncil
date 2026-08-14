@@ -51,11 +51,13 @@ fun SettingsScreen(onBack: () -> Unit) {
     var theme by remember { mutableStateOf(ThemePreset.WARM) }
     var density by remember { mutableStateOf(DensityPreset.COMFORTABLE) }
     var biometricLock by remember { mutableStateOf(false) }
+    var amoledDark by remember { mutableStateOf(false) }
 
     androidx.compose.runtime.LaunchedEffect(Unit) {
         prefs.theme.collect { theme = it }
         prefs.density.collect { density = it }
         prefs.biometricLock.collect { biometricLock = it }
+        prefs.amoledDark.collect { amoledDark = it }
     }
 
     Scaffold(
@@ -119,6 +121,31 @@ fun SettingsScreen(onBack: () -> Unit) {
                         modifier = Modifier.padding(start = 8.dp),
                     )
                 }
+            }
+            HorizontalDivider(Modifier.padding(vertical = 12.dp))
+            SectionTitle("显示")
+            // P2 AMOLED 纯黑：暗色模式下背景/表面强制纯黑（OLED 省电、对比度高）
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("OLED 纯黑模式", style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        if (amoledDark) "暗色背景强制纯黑（省电）" else "仅暗色主题生效，默认关闭",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = amoledDark,
+                    onCheckedChange = { on ->
+                        amoledDark = on
+                        scope.launch { prefs.setAmoledDark(on) }
+                    },
+                )
             }
             HorizontalDivider(Modifier.padding(vertical = 12.dp))
             SectionTitle("安全")

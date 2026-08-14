@@ -31,7 +31,7 @@ import com.grandcouncil.remote.ui.settings.SettingsScreen
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ConfigScreen() {
+fun ConfigScreen(modifier: Modifier = Modifier) {
     var showSettings by remember { mutableStateOf(false) }
 
     if (showSettings) {
@@ -40,6 +40,7 @@ fun ConfigScreen() {
     }
 
     Scaffold(
+        modifier = modifier,
         topBar = {
             TopAppBar(
                 title = { Text(stringResource(R.string.connections_title)) },

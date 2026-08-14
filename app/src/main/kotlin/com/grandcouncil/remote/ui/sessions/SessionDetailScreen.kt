@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
@@ -27,6 +28,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -46,8 +48,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontFamily
@@ -193,21 +198,37 @@ fun SessionDetailScreen(
         },
         bottomBar = {
             Column {
-                // T7 上下文用量条（used/window token）
+                // T7 上下文用量条（used/window token，进度条 + 颜色随占比）
                 val used = state.contextUsed
                 val window = state.contextWindow
                 if (used != null && window != null && window > 0) {
                     val pct = (used * 100 / window).coerceIn(0, 100)
-                    Text(
-                        "上下文 ${pct}%（${used / 1000f}k / ${window / 1000f}k tokens）",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (pct > 85) MaterialTheme.colorScheme.error
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier
+                    val barColor = when {
+                        pct > 85 -> MaterialTheme.colorScheme.error
+                        pct > 60 -> MaterialTheme.colorScheme.tertiary
+                        else -> MaterialTheme.colorScheme.primary
+                    }
+                    Column(
+                        Modifier
                             .fillMaxWidth()
                             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                             .padding(horizontal = 16.dp, vertical = 2.dp),
-                    )
+                    ) {
+                        Text(
+                            "上下文 ${pct}%（${used / 1000f}k / ${window / 1000f}k tokens）",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        LinearProgressIndicator(
+                            progress = { pct / 100f },
+                            color = barColor,
+                            trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 2.dp, bottom = 3.dp)
+                                .height(3.dp),
+                        )
+                    }
                 }
                 if (state.running) {
                     Text(
@@ -429,6 +450,7 @@ private fun InputBar(
     onStop: () -> Unit,
     voiceSlot: @Composable () -> Unit = {},
 ) {
+    val haptic = LocalHapticFeedback.current
     Row(
         Modifier
             .fillMaxWidth()
@@ -455,7 +477,10 @@ private fun InputBar(
             }
         } else {
             IconButton(
-                onClick = onSend,
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onSend()
+                },
                 enabled = input.isNotBlank() && !readOnly,
                 modifier = Modifier.background(MaterialTheme.colorScheme.primary, CircleShape),
             ) {
@@ -740,13 +765,13 @@ private fun ApprovalCard(approval: ApprovalEventDto, viewModel: SessionDetailVie
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                CompactApprovalButton("✕ 拒绝", ReasonixColors.err) {
+                CompactApprovalButton("✕ 拒绝", ReasonixColors.err, haptic = HapticFeedbackType.LongPress) {
                     viewModel.approve(approval, allow = false)
                 }
-                CompactApprovalButton("★ 总是") {
+                CompactApprovalButton("★ 总是", haptic = HapticFeedbackType.Confirm) {
                     viewModel.approve(approval, allow = true, persist = true)
                 }
-                CompactApprovalButton("✓ 允许", MaterialTheme.colorScheme.primary) {
+                CompactApprovalButton("✓ 允许", MaterialTheme.colorScheme.primary, haptic = HapticFeedbackType.Confirm) {
                     viewModel.approve(approval, allow = true)
                 }
             }
@@ -754,15 +779,20 @@ private fun ApprovalCard(approval: ApprovalEventDto, viewModel: SessionDetailVie
     }
 }
 
-/** 紧凑审批按钮（小圆角、小高度，行内右对齐） */
+/** 紧凑审批按钮（小圆角、小高度，行内右对齐；可带触觉反馈） */
 @Composable
 private fun CompactApprovalButton(
     label: String,
     color: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    haptic: HapticFeedbackType? = null,
     onClick: () -> Unit,
 ) {
+    val feedback = LocalHapticFeedback.current
     TextButton(
-        onClick = onClick,
+        onClick = {
+            haptic?.let { feedback.performHapticFeedback(it) }
+            onClick()
+        },
         contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 0.dp),
         modifier = Modifier.padding(0.dp),
     ) {

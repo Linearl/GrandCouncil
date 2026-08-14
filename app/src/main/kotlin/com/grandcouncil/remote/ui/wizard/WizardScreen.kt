@@ -54,7 +54,7 @@ import kotlinx.coroutines.launch
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun WizardScreen() {
+fun WizardScreen(modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val store = remember { ConnectionStore(context) }
     val scope = rememberCoroutineScope()
@@ -71,6 +71,7 @@ fun WizardScreen() {
     var saved by remember { mutableStateOf(false) }
 
     Scaffold(
+        modifier = modifier,
         topBar = {
             TopAppBar(
                 title = { Text("连接向导 · 第 $step 步 / 共 4 步") },
