@@ -17,6 +17,8 @@ data class ConnectionProfile(
     /** http(s)://host:port，如 https://xxx.iepose.cn / http://100.x.x.x:8787 */
     val baseUrl: String,
     val authMode: AuthMode = AuthMode.NONE,
+    /** 网关项目路由前缀（单入口网关场景）：非空时 baseUrl 拼接 /p/<projectId>/ */
+    val projectId: String? = null,
     // TODO(M2 安全基线)：token/password 迁移到 Android Keystore/EncryptedSharedPreferences，
     //  禁止明文落盘（第 3 条）
     val token: String = "",
@@ -28,6 +30,10 @@ data class ConnectionProfile(
     /** 规范化 baseUrl：补 scheme、确保以 / 结尾（Retrofit 要求） */
     fun normalizedBaseUrl(): String {
         var url = baseUrl.trim()
+        if (!projectId.isNullOrBlank()) {
+            val prefix = "/p/" + projectId.trim().trim('/')
+            url = url.trimEnd('/') + prefix + "/"
+        }
         if (url.isEmpty()) return url
         if (!url.startsWith("http://") && !url.startsWith("https://")) {
             url = "http://$url"

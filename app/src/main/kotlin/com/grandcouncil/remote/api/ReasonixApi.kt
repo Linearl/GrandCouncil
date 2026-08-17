@@ -1,6 +1,7 @@
 package com.grandcouncil.remote.api
 
 import com.grandcouncil.remote.api.dto.HistoryMessageDto
+import com.grandcouncil.remote.api.dto.ProjectEntryDto
 import com.grandcouncil.remote.api.dto.ModelEntryDto
 import com.grandcouncil.remote.api.dto.SessionEntryDto
 import com.grandcouncil.remote.api.dto.StatusDto
@@ -19,6 +20,12 @@ import retrofit2.http.Query
  * password 模式需先 POST /login 建立 session cookie（M2 细化）。
  */
 interface ReasonixApi {
+
+    // ---- 网关（单入口远程网关：servepool /manifest）----
+
+    /** GET /manifest — 入口连接下的项目列表（网关 Bearer token 认证） */
+    @GET("manifest")
+    suspend fun manifest(): List<ProjectEntryDto>
 
     // ---- 会话管理 ----
 

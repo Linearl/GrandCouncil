@@ -7,6 +7,18 @@ import kotlinx.serialization.Serializable
  * 统一 ignoreUnknownKeys：serve 协议随版本演进，客户端做 DTO 容错（风险对策）。
  */
 
+/** GET /manifest 响应元素（网关 /manifest：servepool.ProjectState） */
+@Serializable
+data class ProjectEntryDto(
+    val id: String,
+    val name: String = "",
+    val root: String = "",
+    /** stopped | starting | running | degraded | failed */
+    val state: String = "stopped",
+    val sessions: Int? = null,
+    val err: String? = null,
+)
+
 /** GET /sessions 响应元素（serve.go:1477 sessionEntry） */
 @Serializable
 data class SessionEntryDto(
