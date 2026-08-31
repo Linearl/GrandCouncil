@@ -39,6 +39,12 @@ data class ProjectSessionsDto(
     val sessions: List<SessionEntryDto> = emptyList(),
 )
 
+/** POST /attachments 响应（serve.go attachments.go）：图片上传后返回 @ref 引用路径 */
+@Serializable
+data class AttachmentRefDto(
+    val ref: String = "",
+)
+
 /** GET /status 响应（serve.go:1369，宽松解析——只取握手特征字段） */
 @Serializable
 data class StatusDto(

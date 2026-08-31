@@ -1,6 +1,7 @@
 package com.grandcouncil.remote.api
 
 import com.grandcouncil.remote.api.dto.HistoryMessageDto
+import com.grandcouncil.remote.api.dto.AttachmentRefDto
 import com.grandcouncil.remote.api.dto.ProjectEntryDto
 import com.grandcouncil.remote.api.dto.ProjectSessionsDto
 import com.grandcouncil.remote.api.dto.ModelEntryDto
@@ -37,6 +38,10 @@ interface ReasonixApi {
     /** GET /projects — 所有项目的会话列表（单个 serve 浏览全部项目；#9440） */
     @GET("projects")
     suspend fun listProjects(): List<ProjectSessionsDto>
+
+    /** POST /attachments — 上传图片返回 @ref（body: {"data":base64,"mime"}；#9441） */
+    @POST("attachments")
+    suspend fun uploadAttachment(@Body body: JsonObject): AttachmentRefDto
 
     /** GET /sessions/{id} — Web UI 页面（原生 App 用 /history，见下） */
 
