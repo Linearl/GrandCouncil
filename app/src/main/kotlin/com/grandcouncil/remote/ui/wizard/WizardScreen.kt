@@ -266,46 +266,28 @@ private fun StepCommand(
     onToken: (String) -> Unit,
     onPassword: (String) -> Unit,
 ) {
-    Text("在电脑上启动 serve", style = MaterialTheme.typography.titleLarge)
+    Text("在桌面版开启远程网关", style = MaterialTheme.typography.titleLarge)
     Text(
-        "复制下面的命令到电脑运行；启动后 token 会显示在日志中",
+        "打开电脑端 Reasonix → 设置 → 集成与连接 → 本地服务，开启「启用远程网关」，复制 Token 粘贴到下方。",
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(bottom = 12.dp),
     )
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp)) {
-            val cmd = buildString {
-                append("reasonix serve --addr 0.0.0.0:8787")
-                if (authMode != AuthMode.NONE) {
-                    append(" --auth ${if (authMode == AuthMode.TOKEN) "token" else "password"}")
-                }
-            }
-            Text(
-                cmd,
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(bottom = 8.dp),
+            val steps = listOf(
+                "1. 电脑 Reasonix → 设置 → 集成与连接 → 本地服务",
+                "2. 开启「启用远程网关」（监听 0.0.0.0:18789）",
+                "3. 点「复制 Token」",
             )
-            var copied by remember { mutableStateOf(false) }
-            val clipboard = LocalClipboardManager.current
-            val scope = rememberCoroutineScope()
-            TextButton(onClick = {
-                clipboard.setText(AnnotatedString(cmd))
-                copied = true
-                scope.launch {
-                    kotlinx.coroutines.delay(2000)
-                    copied = false
-                }
-            }) {
-                Text(if (copied) "已复制 ✓" else "复制命令")
-            }
+            steps.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
         }
     }
     if (authMode == AuthMode.TOKEN) {
         OutlinedTextField(
             value = token,
             onValueChange = onToken,
-            label = { Text("Token（serve 启动日志中查看）") },
+            label = { Text("Token（从桌面版「本地服务」面板复制）") },
             singleLine = true,
             modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
         )
