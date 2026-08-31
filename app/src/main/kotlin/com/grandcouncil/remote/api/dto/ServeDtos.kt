@@ -31,6 +31,14 @@ data class SessionEntryDto(
     val heldBy: String? = null,
 )
 
+/** GET /projects 响应元素（serve.go projects.go projectEntry）：一个项目的全部会话 */
+@Serializable
+data class ProjectSessionsDto(
+    val root: String = "",
+    val name: String = "",
+    val sessions: List<SessionEntryDto> = emptyList(),
+)
+
 /** GET /status 响应（serve.go:1369，宽松解析——只取握手特征字段） */
 @Serializable
 data class StatusDto(

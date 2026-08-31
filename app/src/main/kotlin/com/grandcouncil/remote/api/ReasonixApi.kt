@@ -2,6 +2,7 @@ package com.grandcouncil.remote.api
 
 import com.grandcouncil.remote.api.dto.HistoryMessageDto
 import com.grandcouncil.remote.api.dto.ProjectEntryDto
+import com.grandcouncil.remote.api.dto.ProjectSessionsDto
 import com.grandcouncil.remote.api.dto.ModelEntryDto
 import com.grandcouncil.remote.api.dto.SessionEntryDto
 import com.grandcouncil.remote.api.dto.StatusDto
@@ -32,6 +33,10 @@ interface ReasonixApi {
     /** GET /sessions — 会话列表（M1 核心） */
     @GET("sessions")
     suspend fun listSessions(): List<SessionEntryDto>
+
+    /** GET /projects — 所有项目的会话列表（单个 serve 浏览全部项目；#9440） */
+    @GET("projects")
+    suspend fun listProjects(): List<ProjectSessionsDto>
 
     /** GET /sessions/{id} — Web UI 页面（原生 App 用 /history，见下） */
 
