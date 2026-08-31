@@ -65,6 +65,14 @@ interface ReasonixApi {
     @POST("resume")
     suspend fun resume(@Body body: JsonObject): Unit
 
+    /** POST /release-session — 释放当前绑定的会话并给目标 writer 预留（body: {"name","to"}；204；非本运行时持有/回合运行中 → 409） */
+    @POST("release-session")
+    suspend fun releaseSession(@Body body: JsonObject): Unit
+
+    /** POST /takeover-session — 接管一个由 /release-session 预留的会话并重绑 controller（body: {"name","from"}；204；无有效预留 → 409） */
+    @POST("takeover-session")
+    suspend fun takeoverSession(@Body body: JsonObject): Unit
+
     /** GET /context — 上下文（M3） */
     @GET("context")
     suspend fun context(@Query("session") sessionId: String?): JsonObject

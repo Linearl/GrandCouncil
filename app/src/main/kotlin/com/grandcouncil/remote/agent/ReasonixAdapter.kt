@@ -25,8 +25,8 @@ class ReasonixAdapter(
     override fun supports(feature: Feature): Boolean = when (feature) {
         Feature.STREAMING, Feature.APPROVAL, Feature.MODELS, Feature.CONTEXT,
         Feature.DELETE_SESSION, Feature.NEW_SESSION, Feature.EXPORT -> true
-        // serve 无 release/takeover 端点（2026-08-14 源码路由表确认），TAKEOVER 不展示入口
-        Feature.TAKEOVER -> false
+        // serve 已具备 /release-session + /takeover-session（fork 合入 #8749，2026-08-31）
+        Feature.TAKEOVER -> true
     }
 
     override suspend fun listSessions(): List<RemoteSession> =
