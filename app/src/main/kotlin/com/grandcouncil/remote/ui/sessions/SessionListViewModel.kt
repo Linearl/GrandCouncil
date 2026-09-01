@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.grandcouncil.remote.connection.ConnectionProfile
 import com.grandcouncil.remote.connection.ConnectionStore
+import com.grandcouncil.remote.api.dto.ProjectEntryDto
 import com.grandcouncil.remote.model.HeldBy
 import com.grandcouncil.remote.model.RemoteSession
 import com.grandcouncil.remote.repository.SessionRepository
@@ -43,7 +44,13 @@ data class AggregatedSession(
 /** 会话列表状态（聚合视图：多连接会话合并 + 设备筛选） */
 data class SessionListUiState(
     val profiles: List<ConnectionProfile> = emptyList(),
-    /** profileId → 会话列表 */
+    /** profileId → 项目列表（网关 /manifest） */
+    val projectsByProfile: Map<String, List<ProjectEntryDto>> = emptyMap(),
+    /** "profileId:projectId" → 该项目的会话列表（懒加载，点项目才拉） */
+    val sessionsByProject: Map<String, List<RemoteSession>> = emptyMap(),
+    /** 当前展开的项目（懒加载目标）："profileId:projectId"，null=未展开 */
+    val expandedProject: String? = null,
+    /** profileId → 会话列表（兼容旧 view；保留用于已加载数据） */
     val sessionsByProfile: Map<String, List<RemoteSession>> = emptyMap(),
     /** profileId → 服务器信息 */
     val serveInfoByProfile: Map<String, ServeInfo> = emptyMap(),
@@ -228,20 +235,21 @@ class SessionListViewModel(
             coroutineScope {
                 val jobs = profiles.map { profile ->
                     async {
-                        val sessionsResult = repository.listSessions(profile)
+                        val projectsResult = repository.listProjects(profile)
                         val statusResult = repository.getStatus(profile)
-                        Triple(profile, sessionsResult, statusResult)
+                        Pair(profile, projectsResult to statusResult)
                     }
                 }
                 jobs.forEach { job ->
-                    val (profile, sessionsResult, statusResult) = job.await()
-                    sessionsResult.onSuccess { sessions ->
+                    val (profile, results) = job.await()
+                    val (projectsResult, statusResult) = results
+                    projectsResult.onSuccess { projects ->
                         _uiState.value = _uiState.value.copy(
-                            sessionsByProfile = _uiState.value.sessionsByProfile + (profile.id to sessions),
+                            projectsByProfile = _uiState.value.projectsByProfile + (profile.id to projects),
                         )
                     }.onFailure { e ->
                         if (_uiState.value.profiles.size == 1) {
-                            _uiState.value = _uiState.value.copy(error = e.message ?: "加载失败")
+                            _uiState.value = _uiState.value.copy(error = e.message ?: "加载项目失败")
                         }
                     }
                     statusResult.onSuccess { status ->
@@ -259,5 +267,33 @@ class SessionListViewModel(
                 _uiState.value = _uiState.value.copy(loading = false, refreshing = false)
             }
         }
+    }
+
+    /** 懒加载某个项目的会话列表（点项目才拉；只读取列表，不接管） */
+    fun loadProjectSessions(profileId: String, projectId: String) {
+        val profile = _uiState.value.profiles.firstOrNull { it.id == profileId } ?: return
+        val key = "$profileId:$projectId"
+        if (_uiState.value.sessionsByProject.containsKey(key)) {
+            // 已加载过；切换展开目标即可
+            _uiState.value = _uiState.value.copy(expandedProject = key)
+            return
+        }
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(expandedProject = key)
+            repository.listSessionsForProject(profile, projectId)
+                .onSuccess { sessions ->
+                    _uiState.value = _uiState.value.copy(
+                        sessionsByProject = _uiState.value.sessionsByProject + (key to sessions),
+                    )
+                }
+                .onFailure { e ->
+                    _uiState.value = _uiState.value.copy(error = e.message ?: "加载会话失败")
+                }
+        }
+    }
+
+    /** 收起项目（不拉取） */
+    fun collapseProject() {
+        _uiState.value = _uiState.value.copy(expandedProject = null)
     }
 }

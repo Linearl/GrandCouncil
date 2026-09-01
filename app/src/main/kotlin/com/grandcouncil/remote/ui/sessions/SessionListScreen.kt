@@ -2,6 +2,7 @@ package com.grandcouncil.remote.ui.sessions
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
@@ -62,6 +63,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.grandcouncil.remote.api.dto.ProjectEntryDto
 import com.grandcouncil.remote.connection.ConnectionProfile
 import com.grandcouncil.remote.connection.ConnectionStore
 import com.grandcouncil.remote.model.HeldBy
@@ -177,28 +179,19 @@ fun SessionDrawerContent(
                     }
 
                 else -> {
-                    // 全部设备 → 按项目分组（组头=设备名）；单设备 → 按日期分组
-                    if (state.deviceFilter == null && state.profiles.size > 1) {
-                        ProjectGroupedList(
-                            groups = state.groupedByProject,
-                            density = state.density,
-                            onlineIds = state.serveInfoByProfile.keys,
-                            favorites = state.favorites,
-                            onOpen = onSelectSession,
-                            onDelete = { viewModel.deleteSession(it) },
-                            onToggleFavorite = { viewModel.toggleFavorite(it) },
-                        )
-                    } else {
-                        SessionGroupedList(
-                            sessions = state.filteredSessions,
-                            density = state.density,
-                            multiDevice = state.profiles.size > 1,
-                            favorites = state.favorites,
-                            onOpen = onSelectSession,
-                            onDelete = { viewModel.deleteSession(it) },
-                            onToggleFavorite = { viewModel.toggleFavorite(it) },
-                        )
-                    }
+                    // 设备（serve pool 网关）→ 项目分组 → 项目 →（点项目展开）会话分组 → 会话
+                    DeviceProjectList(
+                        profiles = state.profiles,
+                        state = state,
+                        density = state.density,
+                        onlineIds = state.serveInfoByProfile.keys,
+                        favorites = state.favorites,
+                        onOpen = onSelectSession,
+                        onDelete = { viewModel.deleteSession(it) },
+                        onToggleFavorite = { viewModel.toggleFavorite(it) },
+                        onExpandProject = viewModel::loadProjectSessions,
+                        onCollapseProject = viewModel::collapseProject,
+                    )
                 }
             }
         }
@@ -330,6 +323,122 @@ private fun projectColor(token: String): Color = when (token.trim().lowercase())
     "orange" -> Color(0xFFE8842C)
     "teal" -> Color(0xFF2AA7A0)
     else -> Color(0xFF6B7280)
+}
+
+/** 设备（serve pool 网关）→ 项目分组 → 项目 →（点项目展开）会话分组 → 会话。
+ *  设备层只列项目（/manifest，懒加载）；点项目才拉该项目会话（不接管）。 */
+@Composable
+private fun DeviceProjectList(
+    profiles: List<ConnectionProfile>,
+    state: SessionListUiState,
+    density: DensityPreset,
+    onlineIds: Set<String>,
+    favorites: Set<String>,
+    onOpen: (AggregatedSession) -> Unit,
+    onDelete: (AggregatedSession) -> Unit,
+    onToggleFavorite: (AggregatedSession) -> Unit,
+    onExpandProject: (profileId: String, projectId: String) -> Unit,
+    onCollapseProject: () -> Unit,
+) {
+    androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxSize()) {
+        profiles.forEach { profile ->
+            val projects = state.projectsByProfile[profile.id].orEmpty()
+            item(key = "device-${profile.id}") {
+                val online = profile.id in onlineIds
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        if (online) "●" else "○",
+                        color = if (online) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        profile.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(start = 6.dp),
+                    )
+                }
+            }
+            if (projects.isEmpty()) {
+                item(key = "empty-${profile.id}") {
+                    Text(
+                        "该设备没有项目（或加载中）",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp),
+                    )
+                }
+            } else {
+                val byGroup = projects.groupBy { it.group.ifBlank { "未分组" } }
+                byGroup.forEach { (group, groupProjects) ->
+                    item(key = "group-${profile.id}-${group}") {
+                        Text(
+                            group,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                        )
+                    }
+                    groupProjects.forEach { project ->
+                        val key = "${profile.id}:${project.id}"
+                        val expanded = state.expandedProject == key
+                        item(key = "project-${key}") {
+                            val color = projectColor(project.color)
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        if (expanded) onCollapseProject() else onExpandProject(profile.id, project.id)
+                                    }
+                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Box(Modifier.size(10.dp).background(if (project.color.isBlank()) color else color, CircleShape))
+                                Text(
+                                    project.name.ifBlank { project.id },
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    modifier = Modifier.padding(start = 8.dp).weight(1f),
+                                )
+                                Text(
+                                    if (expanded) "▾" else "▸",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                        if (expanded) {
+                            val keySessions = state.sessionsByProject[key].orEmpty()
+                            if (keySessions.isEmpty()) {
+                                item(key = "sess-empty-${key}") {
+                                    Text(
+                                        "该项目暂无会话",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 6.dp),
+                                    )
+                                }
+                            } else {
+                                keySessions.forEach { session ->
+                                    item(key = "sess-${key}-${session.id}") {
+                                        SessionItem(
+                                            item = AggregatedSession(session, profile),
+                                            density = density,
+                                            showDevice = false,
+                                            isFavorite = "${profile.id}:${session.id}" in favorites,
+                                            onClick = { onOpen(AggregatedSession(session, profile)) },
+                                            onDelete = { onDelete(AggregatedSession(session, profile)) },
+                                            onToggleFavorite = { onToggleFavorite(AggregatedSession(session, profile)) },
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable
