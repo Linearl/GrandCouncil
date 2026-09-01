@@ -170,16 +170,10 @@ fun SessionDrawerContent(
                         }
                     }
 
-                state.filteredSessions.isEmpty() ->
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(
-                            if (state.aggregated.isEmpty()) "暂无会话" else "该筛选条件下没有会话",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-
                 else -> {
                     // 设备（serve pool 网关）→ 项目分组 → 项目 →（点项目展开）会话分组 → 会话
+                    // 项目树来自 /manifest，与是否已有会话无关——三层列表必须始终渲染，
+                    // 否则"暂无会话"占位会把懒加载入口挡死（0 会话的新网关场景）。
                     DeviceProjectList(
                         profiles = state.profiles,
                         state = state,
