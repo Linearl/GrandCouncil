@@ -158,7 +158,13 @@ fun MainScreen() {
                 }
 
                 MainSection.CONFIG -> ConfigScreen(Modifier.padding(padding))
-                MainSection.WIZARD -> WizardScreen(Modifier.padding(padding))
+                MainSection.WIZARD -> WizardScreen(
+                    Modifier.padding(padding),
+                    onDone = {
+                        section = MainSection.CHAT
+                        scope.launch { drawerState.close() }
+                    },
+                )
                 MainSection.DEMO -> DemoChatScreen(onBack = { section = MainSection.CHAT })
             }
         }

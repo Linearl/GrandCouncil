@@ -41,6 +41,8 @@ import com.grandcouncil.remote.connection.ConnectionProfile
 import com.grandcouncil.remote.connection.ConnectionStore
 import com.grandcouncil.remote.connection.ConnectionTester
 import com.grandcouncil.remote.connection.ConnectionType
+import com.grandcouncil.remote.api.HttpClientFactory
+import com.grandcouncil.remote.api.dto.ProjectEntryDto
 import com.grandcouncil.remote.model.AgentType
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -54,7 +56,7 @@ import kotlinx.coroutines.launch
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun WizardScreen(modifier: Modifier = Modifier) {
+fun WizardScreen(modifier: Modifier = Modifier, onDone: () -> Unit = {}) {
     val context = LocalContext.current
     val store = remember { ConnectionStore(context) }
     val scope = rememberCoroutineScope()
@@ -126,11 +128,22 @@ fun WizardScreen(modifier: Modifier = Modifier) {
                             testing = false
                             if (results.all { it.success }) {
                                 val existing = store.profiles.first()
-                                store.save(existing + profile)
+                                // Serve pool 网关：读 /manifest 展开成「每个项目一个连接」，
+                                // 后端走 /p/<projectId>/ 前缀（修复连上后 /sessions 404）。
+                                val projects = runCatching {
+                                    HttpClientFactory.createApi(profile).manifest()
+                                }.getOrNull()
+                                val newProfiles = if (projects.isNullOrEmpty()) {
+                                    listOf(profile)
+                                } else {
+                                    projects.map { p -> profile.copy(id = ConnectionProfile.newId(), name = if (p.name.isNotBlank()) p.name else profile.name, projectId = p.id) }
+                                }
+                                store.save(existing + newProfiles)
                                 saved = true
                             }
                         }
                     },
+                    onDone = onDone,
                 )
             }
 
@@ -315,6 +328,7 @@ private fun StepTest(
     results: List<ConnectionTester.TestResult>,
     saved: Boolean,
     onTest: () -> Unit,
+    onDone: () -> Unit = {},
 ) {
     Text("测试并保存", style = MaterialTheme.typography.titleLarge)
     Text(
@@ -346,5 +360,8 @@ private fun StepTest(
             color = MaterialTheme.colorScheme.primary,
             modifier = Modifier.padding(top = 12.dp),
         )
+        Button(onClick = onDone, modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
+            Text("完成")
+        }
     }
 }
