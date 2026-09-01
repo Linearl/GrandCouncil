@@ -128,17 +128,10 @@ fun WizardScreen(modifier: Modifier = Modifier, onDone: () -> Unit = {}) {
                             testing = false
                             if (results.all { it.success }) {
                                 val existing = store.profiles.first()
-                                // Serve pool 网关：读 /manifest 展开成「每个项目一个连接」，
-                                // 后端走 /p/<projectId>/ 前缀（修复连上后 /sessions 404）。
-                                val projects = runCatching {
-                                    HttpClientFactory.createApi(profile).manifest()
-                                }.getOrNull()
-                                val newProfiles = if (projects.isNullOrEmpty()) {
-                                    listOf(profile)
-                                } else {
-                                    projects.map { p -> profile.copy(id = ConnectionProfile.newId(), name = if (p.name.isNotBlank()) p.name else profile.name, projectId = p.id, color = p.color) }
-                                }
-                                store.save(existing + newProfiles)
+                                // Serve pool 网关：连接作为一个「设备」保存。
+                                // 设备下的项目/会话由会话列表层经 /manifest 懒加载展示
+                                //（点项目才拉该项目会话，不占用于桌面端）。
+                                store.save(existing + profile)
                                 saved = true
                             }
                         }

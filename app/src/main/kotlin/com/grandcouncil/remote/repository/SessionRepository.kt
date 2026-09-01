@@ -3,6 +3,7 @@ package com.grandcouncil.remote.repository
 import com.grandcouncil.remote.agent.AgentAdapterFactory
 import com.grandcouncil.remote.api.HttpClientFactory
 import com.grandcouncil.remote.api.dto.ModelEntryDto
+import com.grandcouncil.remote.api.dto.ProjectEntryDto
 import com.grandcouncil.remote.api.dto.StatusDto
 import com.grandcouncil.remote.connection.ConnectionProfile
 import com.grandcouncil.remote.model.RemoteMessage
@@ -23,6 +24,19 @@ class SessionRepository {
     suspend fun listSessions(profile: ConnectionProfile): Result<List<RemoteSession>> =
         runCatching {
             AgentAdapterFactory.create(profile).listSessions()
+                .filter { s -> !s.path.contains("-recovery-") }
+        }
+
+    /** 列出 serve pool 网关的项目列表（GET /manifest），供设备→项目分层展示 */
+    suspend fun listProjects(profile: ConnectionProfile): Result<List<ProjectEntryDto>> =
+        runCatching {
+            HttpClientFactory.createApi(profile).manifest()
+        }
+
+    /** 懒加载某项目的会话列表（经 /p/<projectId>/sessions，只读取不复用/不接管） */
+    suspend fun listSessionsForProject(profile: ConnectionProfile, projectId: String): Result<List<RemoteSession>> =
+        runCatching {
+            AgentAdapterFactory.create(profile.copy(projectId = projectId)).listSessions()
                 .filter { s -> !s.path.contains("-recovery-") }
         }
 
