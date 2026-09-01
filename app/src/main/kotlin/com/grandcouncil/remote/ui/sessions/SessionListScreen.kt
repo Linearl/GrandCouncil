@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.LazyRow
@@ -49,6 +50,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.changedToDown
 import androidx.compose.ui.input.pointer.changedToUp
 import androidx.compose.ui.input.pointer.pointerInput
@@ -316,6 +318,20 @@ private fun FilterRow(current: SessionFilter, onSelect: (SessionFilter) -> Unit)
 }
 
 /** 按项目分组的会话列表（组头=设备名+在线状态；左滑删除） */
+// projectColor maps a desktop project color token (amber/blue/green/...) to a
+// Compose Color for the session-group header dot / accent. Unknown tokens fall
+// back to the theme primary.
+private fun projectColor(token: String): Color = when (token.trim().lowercase()) {
+    "amber" -> Color(0xFFF5A623)
+    "blue" -> Color(0xFF4A90D9)
+    "green" -> Color(0xFF3CA757)
+    "red" -> Color(0xFFD64545)
+    "purple" -> Color(0xFF8E5AC8)
+    "orange" -> Color(0xFFE8842C)
+    "teal" -> Color(0xFF2AA7A0)
+    else -> Color(0xFF6B7280)
+}
+
 @Composable
 private fun ProjectGroupedList(
     groups: List<Pair<ConnectionProfile, List<AggregatedSession>>>,
@@ -343,17 +359,25 @@ private fun ProjectGroupedList(
     LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
         groups.forEach { (profile, sessions) ->
             item(key = "proj-${profile.id}") {
-                Text(
-                    buildString {
-                        append(profile.name)
-                        append(if (profile.id in onlineIds) "  ●在线" else "  ○离线")
-                        append("（${sessions.size}）")
-                    },
-                    style = MaterialTheme.typography.labelMedium,
-                    color = if (profile.id in onlineIds) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                androidx.compose.foundation.layout.Row(
+                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                )
+                ) {
+                    Box(
+                        Modifier.size(10.dp).background(projectColor(profile.color), CircleShape)
+                    )
+                    Text(
+                        buildString {
+                            append(profile.name)
+                            append(if (profile.id in onlineIds) "  ●在线" else "  ○离线")
+                            append("（${sessions.size}）")
+                        },
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (profile.id in onlineIds) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 6.dp),
+                    )
+                }
             }
             items(sessions, key = { "${it.profile.id}-${it.session.id}" }) { item ->
                 SessionItem(

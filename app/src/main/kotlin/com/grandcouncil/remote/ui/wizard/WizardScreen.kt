@@ -136,7 +136,7 @@ fun WizardScreen(modifier: Modifier = Modifier, onDone: () -> Unit = {}) {
                                 val newProfiles = if (projects.isNullOrEmpty()) {
                                     listOf(profile)
                                 } else {
-                                    projects.map { p -> profile.copy(id = ConnectionProfile.newId(), name = if (p.name.isNotBlank()) p.name else profile.name, projectId = p.id) }
+                                    projects.map { p -> profile.copy(id = ConnectionProfile.newId(), name = if (p.name.isNotBlank()) p.name else profile.name, projectId = p.id, color = p.color) }
                                 }
                                 store.save(existing + newProfiles)
                                 saved = true

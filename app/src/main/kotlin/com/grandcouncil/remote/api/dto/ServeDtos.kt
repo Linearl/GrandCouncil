@@ -15,6 +15,7 @@ data class ProjectEntryDto(
     val root: String = "",
     /** stopped | starting | running | degraded | failed */
     val state: String = "stopped",
+    val color: String = "",
     val sessions: Int? = null,
     val err: String? = null,
 )
