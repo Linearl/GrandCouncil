@@ -40,6 +40,16 @@ class SessionRepository {
                 .filter { s -> !s.path.contains("-recovery-") }
         }
 
+    /** 显式接管会话（用户点「接管」按钮才触发；POST /p/<projectId>/takeover-session，body {"name","from"}） */
+    suspend fun takeoverSession(profile: ConnectionProfile, projectId: String?, session: RemoteSession): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                HttpClientFactory.createApi(profile.copy(projectId = projectId)).takeoverSession(
+                    buildJsonObject { put("name", JsonPrimitive(session.id)) },
+                )
+            }.map { }
+        }
+
     /** 只读加载会话历史（内部切换 serve 当前会话） */
     suspend fun loadHistory(
         profile: ConnectionProfile,

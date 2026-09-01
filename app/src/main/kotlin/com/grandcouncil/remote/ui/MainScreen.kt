@@ -135,7 +135,7 @@ fun MainScreen() {
                     val draft = draftProfile
                     when {
                         selected != null -> SessionDetailScreen(
-                            profile = selected.profile,
+                            profile = selected.profile.copy(projectId = selected.projectId),
                             session = selected.session,
                             modifier = Modifier.padding(padding),
                         )

@@ -422,13 +422,13 @@ private fun DeviceProjectList(
                                 keySessions.forEach { session ->
                                     item(key = "sess-${key}-${session.id}") {
                                         SessionItem(
-                                            item = AggregatedSession(session, profile),
+                                            item = AggregatedSession(session, profile, projectId = project.id),
                                             density = density,
                                             showDevice = false,
                                             isFavorite = "${profile.id}:${session.id}" in favorites,
-                                            onClick = { onOpen(AggregatedSession(session, profile)) },
-                                            onDelete = { onDelete(AggregatedSession(session, profile)) },
-                                            onToggleFavorite = { onToggleFavorite(AggregatedSession(session, profile)) },
+                                            onClick = { onOpen(AggregatedSession(session, profile, projectId = project.id)) },
+                                            onDelete = { onDelete(AggregatedSession(session, profile, projectId = project.id)) },
+                                            onToggleFavorite = { onToggleFavorite(AggregatedSession(session, profile, projectId = project.id)) },
                                         )
                                     }
                                 }

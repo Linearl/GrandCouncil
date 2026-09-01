@@ -70,6 +70,8 @@ data class SessionDetailUiState(
     val newSessionBusy: Boolean = false,
     /** 发送后排队提示（§1.3：submit 后 3-5s 无事件） */
     val queued: Boolean = false,
+    /** 「接管」按钮进行中（POST /takeover-session 等待） */
+    val takingOver: Boolean = false,
 )
 
 /** 审批模式三档（对应 serve ask/auto/yolo） */
@@ -154,6 +156,25 @@ class SessionDetailViewModel(
                 }
             }
             }
+        }
+    }
+
+    /** 显式接管会话（「接管」按钮触发；POST /p/<id>/takeover-session；成功后重载刷新 heldBy） */
+    fun takeover() {
+        val s = session ?: return
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(takingOver = true, error = null)
+            repository.takeoverSession(profile, profile.projectId, s)
+                .onSuccess {
+                    _uiState.value = _uiState.value.copy(takingOver = false)
+                    load()
+                }
+                .onFailure { e ->
+                    _uiState.value = _uiState.value.copy(
+                        takingOver = false,
+                        error = e.message ?: "接管失败（可能该会话被占用且未释放或 serve 不支持接管）",
+                    )
+                }
         }
     }
 

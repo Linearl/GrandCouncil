@@ -197,12 +197,20 @@ fun SessionDetailScreen(
                 },
                 actions = {
                     if (session?.heldBy == HeldBy.OTHER) {
-                        Text(
-                            "🔒 只读",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(end = 12.dp),
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                "🔒 只读",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(end = 4.dp),
+                            )
+                            TextButton(
+                                onClick = { viewModel.takeover() },
+                                enabled = !state.takingOver,
+                            ) {
+                                Text(if (state.takingOver) "接管中…" else "接管")
+                            }
+                        }
                     }
                     // 右上角「新建对话」（对标 rikkahub New Message）：进入空白新会话草稿
                     if (session != null && !state.newSessionBusy) {

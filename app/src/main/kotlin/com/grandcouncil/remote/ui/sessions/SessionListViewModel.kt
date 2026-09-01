@@ -39,6 +39,7 @@ data class ServeInfo(
 data class AggregatedSession(
     val session: RemoteSession,
     val profile: ConnectionProfile,
+    val projectId: String? = null,
 )
 
 /** 会话列表状态（聚合视图：多连接会话合并 + 设备筛选） */
