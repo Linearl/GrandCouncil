@@ -117,7 +117,7 @@ fun SessionDrawerContent(
             },
             onNewSession = { viewModel.newSession { profile -> onNewSessionCreated(profile) } },
             refreshing = state.refreshing,
-            onRefresh = { viewModel.refresh(showSpinner = true) },
+            onRefresh = { viewModel.forceReload() },
         )
         // 搜索框（A2；本地即时显示 + VM 200ms 防抖过滤）
         var localQuery by remember { mutableStateOf(state.searchQuery) }

@@ -221,6 +221,21 @@ class SessionListViewModel(
     }
 
     /** 聚合刷新：并发拉取全部连接的会话 + 服务器信息。showSpinner=true 时显示刷新转圈 */
+    /**
+     * 手动全量刷新：清空已加载的项目/会话缓存后重拉。
+     * topics/会话页有会话级缓存（loadProjectSessions 的 sessionsByProject
+     * containsKey 短路），桌面端新建的会话要等缓存失效才能看到——手动刷新
+     * 直接清缓存消除这个等待。
+     */
+    fun forceReload() {
+        _uiState.value = _uiState.value.copy(
+            sessionsByProject = emptyMap(),
+            projectsByProfile = emptyMap(),
+            expandedProject = null,
+        )
+        refresh(showSpinner = true)
+    }
+
     fun refresh(showSpinner: Boolean = false) {
         val profiles = _uiState.value.profiles
         if (profiles.isEmpty()) {
