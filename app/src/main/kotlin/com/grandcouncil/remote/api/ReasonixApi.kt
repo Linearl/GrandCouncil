@@ -75,6 +75,10 @@ interface ReasonixApi {
     @POST("resume")
     suspend fun resume(@Body body: JsonObject): Unit
 
+    /** POST /heartbeat — 远程持有会话的存活心跳（body: {"name"}；204；serve 端 90s 无心跳自动释放） */
+    @POST("heartbeat")
+    suspend fun heartbeat(@Body body: JsonObject): Unit
+
     /** POST /release-session — 释放当前绑定的会话并给目标 writer 预留（body: {"name","to"}；204；非本运行时持有/回合运行中 → 409） */
     @POST("release-session")
     suspend fun releaseSession(@Body body: JsonObject): Unit

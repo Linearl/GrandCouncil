@@ -25,6 +25,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.grandcouncil.remote.notify.AppNotifications
+import com.grandcouncil.remote.connection.ConnectionStore
+import com.grandcouncil.remote.debug.DebugApiServer
+import com.grandcouncil.remote.repository.SessionRepository
 import com.grandcouncil.remote.notify.NotificationMonitor
 import com.grandcouncil.remote.security.BiometricLock
 import com.grandcouncil.remote.ui.AppPreferences
@@ -39,9 +42,18 @@ class MainActivity : FragmentActivity() {
     @Volatile
     private var biometricEnabled = false
 
+    private var debugApiServer: DebugApiServer? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        // Debug-only embedded API: host-side tooling drives the real
+        // repositories over adb forward instead of UI automation.
+        if ((applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0) {
+            debugApiServer = DebugApiServer(ConnectionStore(applicationContext), SessionRepository()).also {
+                it.start()
+            }
+        }
         // A3 通知渠道 + Android 13+ 运行时权限（首次启动请求）
         AppNotifications.createChannels(this)
         AppNotifications.requestPermissionIfNeeded(this)

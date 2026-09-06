@@ -211,6 +211,13 @@ fun SessionDetailScreen(
                                 Text(if (state.takingOver) "接管中…" else "接管")
                             }
                         }
+                    } else if (session != null && !state.ownershipReleased) {
+                        // GC（serve 侧）持有或 FREE：提供显式释放入口
+                        TextButton(
+                            onClick = { viewModel.releaseOwnership() },
+                        ) {
+                            Text("释放所有权")
+                        }
                     }
                     // 右上角「新建对话」（对标 rikkahub New Message）：进入空白新会话草稿
                     if (session != null && !state.newSessionBusy) {

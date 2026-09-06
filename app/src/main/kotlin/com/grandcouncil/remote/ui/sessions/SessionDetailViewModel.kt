@@ -15,6 +15,7 @@ import com.grandcouncil.remote.model.ToolCall
 import com.grandcouncil.remote.model.ToolCallStatus
 import com.grandcouncil.remote.repository.SessionRepository
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -53,6 +54,8 @@ data class SessionDetailUiState(
     val pendingApproval: ApprovalEventDto? = null,
     /** 工具审批模式：ask | auto | yolo（PC 端三档，避免被审批卡住） */
     val approvalMode: String? = null,
+    /** 已主动释放所有权（详情页提示状态） */
+    val ownershipReleased: Boolean = false,
     val error: String? = null,
     /** T7 上下文用量：(used, window) token；null=未加载/不可用 */
     val contextUsed: Int? = null,
@@ -94,6 +97,7 @@ class SessionDetailViewModel(
 
     init {
         // 收集联网/思考偏好（文档 §2.2 / §3.2 持久化）
+        startHeartbeat()
         viewModelScope.launch {
             prefs.webSearch.collect { enabled ->
                 _uiState.value = _uiState.value.copy(webSearchEnabled = enabled)
@@ -156,6 +160,37 @@ class SessionDetailViewModel(
                 }
             }
             }
+        }
+    }
+
+    override fun onCleared() {
+        // 离开会话详情：主动释放所有权（桌面端立即可重新获取；serve 端无租约则 409 被忽略）
+        session?.let { s ->
+            kotlinx.coroutines.GlobalScope.launch {
+                repository.releaseOwnership(profile, profile.projectId, s.id)
+            }
+        }
+        super.onCleared()
+    }
+
+    /** 30s 心跳：告知 serve 本端仍持有该会话（90s 无心跳 → serve 自动释放 lease） */
+    fun startHeartbeat() {
+        val s = session ?: return
+        viewModelScope.launch {
+            while (isActive) {
+                repository.heartbeat(profile, profile.projectId, s.id)
+                delay(30_000)
+            }
+        }
+    }
+
+    /** 主动释放所有权（离开会话/显式按钮；桌面端立即可重新获取） */
+    fun releaseOwnership() {
+        val s = session ?: return
+        viewModelScope.launch {
+            repository.releaseOwnership(profile, profile.projectId, s.id)
+                .onSuccess { _uiState.value = _uiState.value.copy(ownershipReleased = true) }
+                .onFailure { e -> _uiState.value = _uiState.value.copy(error = e.message ?: "释放失败") }
         }
     }
 

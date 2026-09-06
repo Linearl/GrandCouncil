@@ -41,6 +41,22 @@ class SessionRepository {
         }
 
     /** 显式接管会话（用户点「接管」按钮才触发；POST /p/<projectId>/takeover-session，body {"name","from"}） */
+    /** POST /heartbeat — 远程持有会话存活心跳（serve 端 90s 无心跳自动释放 lease） */
+    suspend fun heartbeat(profile: ConnectionProfile, projectId: String?, sessionName: String): Result<Unit> =
+        runCatching {
+            HttpClientFactory.createApi(profile.copy(projectId = projectId)).heartbeat(
+                buildJsonObject { put("name", JsonPrimitive(sessionName)) },
+            )
+        }
+
+    /** POST /release-session — 主动释放所有权（to 缺省 = 不带 handoff 预约的纯释放；桌面端立即可重新获取） */
+    suspend fun releaseOwnership(profile: ConnectionProfile, projectId: String?, sessionName: String): Result<Unit> =
+        runCatching {
+            HttpClientFactory.createApi(profile.copy(projectId = projectId)).releaseSession(
+                buildJsonObject { put("name", JsonPrimitive(sessionName)) },
+            )
+        }
+
     suspend fun takeoverSession(profile: ConnectionProfile, projectId: String?, session: RemoteSession): Result<Unit> =
         withContext(Dispatchers.IO) {
             runCatching {

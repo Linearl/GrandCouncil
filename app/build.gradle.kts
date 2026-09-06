@@ -70,4 +70,7 @@ dependencies {
 
     // A4 生物识别锁
     implementation(libs.androidx.biometric)
+
+    // Debug-only embedded API server (BuildConfig.DEBUG builds; see DebugApiServer)
+    debugImplementation("org.nanohttpd:nanohttpd:2.3.1")
 }
