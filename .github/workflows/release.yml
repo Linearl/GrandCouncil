@@ -29,7 +29,9 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Build release APK
-        run: ./gradlew :app:assembleRelease --console=plain --no-daemon
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:assembleRelease --console=plain --no-daemon
 
       - name: Determine release tag
         id: tag
