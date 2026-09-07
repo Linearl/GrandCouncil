@@ -18,6 +18,9 @@ android {
 
     buildTypes {
         release {
+            // v0.1.00 ships a release build installable without a private
+            // keystore: sign with the local debug key for now.
+            signingConfig = signingConfigs.getByName("debug")
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -72,5 +75,5 @@ dependencies {
     implementation(libs.androidx.biometric)
 
     // Debug-only embedded API server (BuildConfig.DEBUG builds; see DebugApiServer)
-    debugImplementation("org.nanohttpd:nanohttpd:2.3.1")
+    implementation("org.nanohttpd:nanohttpd:2.3.1") // release builds compile DebugApiServer too (runtime-guarded by FLAG_DEBUGGABLE)
 }
