@@ -16,11 +16,33 @@ android {
         versionName = "0.1.00"
     }
 
+    // 统一 release 签名：本地与 CI 共用一把 key，避免不同签名覆盖安装被拦截。
+    // keystore 从环境变量读；缺省回退 debug 签名（开发/未配置密钥时不打断构建）。
+    signingConfigs {
+        create("release") {
+            val storeFileEnv = System.getenv("SIGNING_STORE_FILE")
+            val storePassEnv = System.getenv("SIGNING_STORE_PASSWORD")
+            val keyAliasEnv = System.getenv("SIGNING_KEY_ALIAS")
+            val keyPassEnv = System.getenv("SIGNING_KEY_PASSWORD")
+            if (!storeFileEnv.isNullOrBlank() && storePassEnv != null &&
+                keyAliasEnv != null && keyPassEnv != null
+            ) {
+                storeFile = file(storeFileEnv)
+                storePassword = storePassEnv
+                keyAlias = keyAliasEnv
+                keyPassword = keyPassEnv
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // v0.1.00 ships a release build installable without a private
-            // keystore: sign with the local debug key for now.
-            signingConfig = signingConfigs.getByName("debug")
+            // 有统一签名环境变量则用之，否则回退 debug（开发构建不签名也能装）
+            signingConfig = if (System.getenv("SIGNING_STORE_FILE") != null) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),

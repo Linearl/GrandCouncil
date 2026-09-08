@@ -32,8 +32,19 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Build release APK
+        env:
+          SIGNING_STORE_FILE: ${{ secrets.SIGNING_STORE_FILE }}
+          SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+          SIGNING_KEYSTORE_BASE64: ${{ secrets.SIGNING_KEYSTORE_BASE64 }}
         run: |
           chmod +x gradlew
+          # 优先用 base64 keystore（二进制文件无法直接存 secret）；否则用 SIGNING_STORE_FILE 路径
+          if [ -n "$SIGNING_KEYSTORE_BASE64" ]; then
+            echo "$SIGNING_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+            echo "SIGNING_STORE_FILE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+          fi
           ./gradlew :app:assembleRelease --console=plain --no-daemon
 
       - name: Rename APK to canonical name
