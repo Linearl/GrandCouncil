@@ -190,12 +190,14 @@ private fun StepConnectionType(
         modifier = Modifier.padding(bottom = 12.dp),
     )
     ConnectionType.entries.forEach { type ->
+        val usable = type.enabled
         Card(
             Modifier
                 .fillMaxWidth()
                 .padding(vertical = 5.dp)
                 .selectable(
-                    selected = selected == type,
+                    selected = usable && selected == type,
+                    enabled = usable,
                     onClick = { onSelect(type) },
                 ),
         ) {
@@ -204,16 +206,22 @@ private fun StepConnectionType(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(Modifier.weight(1f)) {
-                    Text(type.label, style = MaterialTheme.typography.titleSmall)
                     Text(
-                        type.exampleUrl,
+                        type.label,
+                        style = MaterialTheme.typography.titleSmall,
+                        color = if (usable) MaterialTheme.colorScheme.onSurface
+                        else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                    )
+                    Text(
+                        if (usable) type.exampleUrl else "${type.exampleUrl}（暂不可用）",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = if (usable) MaterialTheme.colorScheme.onSurfaceVariant
+                        else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
                     )
                 }
                 Text(
-                    if (selected == type) "●" else "○",
-                    color = if (selected == type) MaterialTheme.colorScheme.primary
+                    if (usable && selected == type) "●" else "○",
+                    color = if (usable && selected == type) MaterialTheme.colorScheme.primary
                     else MaterialTheme.colorScheme.outline,
                 )
             }

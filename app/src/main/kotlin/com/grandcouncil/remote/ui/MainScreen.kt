@@ -74,19 +74,25 @@ fun MainScreen() {
     val appContext = LocalContext.current.applicationContext
     val prefs = remember { AppPreferences(appContext) }
 
-    // C5 启动恢复：上次浏览位置（连接+会话）→ 自动进入；此后记录浏览位置
+    // C5 启动恢复：上次浏览位置（连接+会话）→ 自动进入；此后记录浏览位置。
+    // 增强：一旦完成首条配置（存在任一 profile），开屏不再停留在空态——
+    // 若上次会话不可用，自动进入该设备的最新会话；确实没有任何会话才保留空态。
     LaunchedEffect(Unit) {
-        val lastProfileId = prefs.lastProfileId.firstOrNull()
-        val lastSessionId = prefs.lastSessionId.firstOrNull()
-        if (lastProfileId != null && lastSessionId != null && selectedSession == null) {
-            val profiles: List<ConnectionProfile> =
-                runCatching { ConnectionStore(appContext).profiles.first() }.getOrDefault(emptyList())
-            val profile = profiles.firstOrNull { it.id == lastProfileId } ?: return@LaunchedEffect
+        val profiles: List<ConnectionProfile> =
+            runCatching { ConnectionStore(appContext).profiles.first() }.getOrDefault(emptyList())
+        if (profiles.isNotEmpty() && selectedSession == null) {
+            val lastProfileId = prefs.lastProfileId.firstOrNull()
+            val lastSessionId = prefs.lastSessionId.firstOrNull()
+            val profile = profiles.firstOrNull { it.id == lastProfileId }
+                ?: profiles.first()
             val sessions: List<RemoteSession> =
-                SessionRepository().listSessions(profile).getOrNull() ?: return@LaunchedEffect
-            val target = sessions.firstOrNull { it.id == lastSessionId } ?: return@LaunchedEffect
-            selectedSession = AggregatedSession(target, profile)
-            section = MainSection.CHAT
+                SessionRepository().listSessions(profile).getOrNull() ?: emptyList()
+            val target = sessions.firstOrNull { it.id == lastSessionId }
+                ?: sessions.firstOrNull()
+            if (target != null) {
+                selectedSession = AggregatedSession(target, profile)
+                section = MainSection.CHAT
+            }
         }
     }
 
@@ -152,7 +158,6 @@ fun MainScreen() {
                                 section = MainSection.WIZARD
                                 scope.launch { drawerState.close() }
                             },
-                            onTryDemo = { section = MainSection.DEMO },
                         )
                     }
                 }
@@ -225,12 +230,11 @@ fun MainScreen() {
     }
 }
 
-/** 未选会话时的主区提示（C4 空态三入口：添加连接 / 使用指南 / Try a Demo） */
+/** 未选会话时的主区提示（C4 空态：添加连接 / 使用指南） */
 @Composable
 private fun ChatEmptyHint(
     modifier: Modifier = Modifier,
     onAddConnection: () -> Unit = {},
-    onTryDemo: () -> Unit = {},
 ) {
     var showGuide by remember { mutableStateOf(false) }
     Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -251,7 +255,6 @@ private fun ChatEmptyHint(
             Row(Modifier.padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = onAddConnection) { Text("➕ 添加连接") }
                 OutlinedButton(onClick = { showGuide = true }) { Text("📖 使用指南") }
-                TextButton(onClick = onTryDemo) { Text("🎬 Try a Demo") }
             }
         }
     }
@@ -264,8 +267,7 @@ private fun ChatEmptyHint(
                     "1. 电脑上运行：reasonix serve --addr 0.0.0.0:8787 --auth token\n" +
                         "2. 手机「向导」添加连接（局域网/穿透均可）\n" +
                         "3. 测试通过后保存，会话列表自动出现\n" +
-                        "4. 长按会话可左滑删除；审批会推送通知\n" +
-                        "5. 没把握？点「Try a Demo」先看效果",
+                        "4. 长按会话可左滑删除；审批会推送通知",
                     style = MaterialTheme.typography.bodySmall,
                 )
             },

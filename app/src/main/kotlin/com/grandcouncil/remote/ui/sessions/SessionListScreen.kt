@@ -94,13 +94,9 @@ fun SessionDrawerContent(
     val state by viewModel.uiState.collectAsState()
     var deviceMenuOpen by remember { mutableStateOf(false) }
 
-    // 每次抽屉展开/组合时刷新，并每 30s 自动静默刷新（非 App 端增删会话也能看到）
+    // 打开抽屉/进入页面时刷新一次；刷新改为手动触发（按钮），不再自动定时刷新消耗资源
     LaunchedEffect(Unit) {
         viewModel.refresh()
-        while (true) {
-            delay(30_000)
-            viewModel.refresh()
-        }
     }
 
     Column(Modifier.fillMaxSize()) {
@@ -180,6 +176,7 @@ fun SessionDrawerContent(
                         density = state.density,
                         onlineIds = state.serveInfoByProfile.keys,
                         favorites = state.favorites,
+                        projectErrors = state.projectErrors,
                         onOpen = onSelectSession,
                         onDelete = { viewModel.deleteSession(it) },
                         onToggleFavorite = { viewModel.toggleFavorite(it) },
@@ -216,33 +213,47 @@ private fun DeviceSelector(
     refreshing: Boolean = false,
     onRefresh: () -> Unit = {},
 ) {
-    Box(Modifier.fillMaxWidth()) {
+    Column(Modifier.fillMaxWidth()) {
         Card(
             onClick = onToggle,
             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
         ) {
-            Row(
-                Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                val online = if (selectedId == null) onlineIds.size else if (selectedId in onlineIds) 1 else 0
-                Text("●", color = if (online > 0) MaterialTheme.colorScheme.primary
-                else MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(
-                    when {
-                        selectedId == null -> "全部设备（${profiles.size}）"
-                        else -> profiles.firstOrNull { it.id == selectedId }?.name ?: "选择设备"
-                    },
-                    style = MaterialTheme.typography.titleSmall,
-                    modifier = Modifier.padding(horizontal = 8.dp).weight(1f),
-                )
-                Text("▾", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    val online = if (selectedId == null) onlineIds.size else if (selectedId in onlineIds) 1 else 0
+                    Text("●", color = if (online > 0) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        when {
+                            selectedId == null -> "全部设备（${profiles.size}）"
+                            else -> profiles.firstOrNull { it.id == selectedId }?.name ?: "选择设备"
+                        },
+                        style = MaterialTheme.typography.titleSmall,
+                        modifier = Modifier.padding(horizontal = 8.dp).weight(1f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text("▾", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                // 当前选中设备的 URL（独立一行，超长省略，不与刷新/新建按钮挤在同一行）
+                val selectedUrl = profiles.firstOrNull { it.id == selectedId }?.baseUrl
+                if (selectedUrl != null) {
+                    Text(
+                        selectedUrl,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(start = 16.dp, top = 2.dp),
+                    )
+                }
             }
         }
-        // 手动刷新 + 新建会话按钮（A1：顶栏标题区 New Chat 对齐）
+        // 手动刷新 + 新建会话按钮（独立一行，不再覆盖设备卡）
         Row(
-            Modifier.align(Alignment.CenterEnd).padding(end = 8.dp),
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.End,
         ) {
             IconButton(
                 onClick = onRefresh,
@@ -328,6 +339,7 @@ private fun DeviceProjectList(
     density: DensityPreset,
     onlineIds: Set<String>,
     favorites: Set<String>,
+    projectErrors: Map<String, String>,
     onOpen: (AggregatedSession) -> Unit,
     onDelete: (AggregatedSession) -> Unit,
     onToggleFavorite: (AggregatedSession) -> Unit,
@@ -403,7 +415,17 @@ private fun DeviceProjectList(
                         }
                         if (expanded) {
                             val keySessions = state.sessionsByProject[key].orEmpty()
-                            if (keySessions.isEmpty()) {
+                            val loadError = projectErrors[key]
+                            if (loadError != null) {
+                                item(key = "sess-error-${key}") {
+                                    Text(
+                                        "⚠ 加载会话失败：$loadError",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 6.dp),
+                                    )
+                                }
+                            } else if (keySessions.isEmpty()) {
                                 item(key = "sess-empty-${key}") {
                                     Text(
                                         "该项目暂无会话",

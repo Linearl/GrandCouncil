@@ -49,6 +49,8 @@ data class SessionListUiState(
     val projectsByProfile: Map<String, List<ProjectEntryDto>> = emptyMap(),
     /** "profileId:projectId" → 该项目的会话列表（懒加载，点项目才拉） */
     val sessionsByProject: Map<String, List<RemoteSession>> = emptyMap(),
+    /** "profileId:projectId" → 该项目会话加载失败信息（与「确实无会话」区分） */
+    val projectErrors: Map<String, String> = emptyMap(),
     /** 当前展开的项目（懒加载目标）："profileId:projectId"，null=未展开 */
     val expandedProject: String? = null,
     /** profileId → 会话列表（兼容旧 view；保留用于已加载数据） */
@@ -232,6 +234,7 @@ class SessionListViewModel(
             sessionsByProject = emptyMap(),
             projectsByProfile = emptyMap(),
             expandedProject = null,
+            projectErrors = emptyMap(),
         )
         refresh(showSpinner = true)
     }
@@ -256,6 +259,7 @@ class SessionListViewModel(
                         Pair(profile, projectsResult to statusResult)
                     }
                 }
+                val failures = mutableListOf<String>()
                 jobs.forEach { job ->
                     val (profile, results) = job.await()
                     val (projectsResult, statusResult) = results
@@ -264,9 +268,7 @@ class SessionListViewModel(
                             projectsByProfile = _uiState.value.projectsByProfile + (profile.id to projects),
                         )
                     }.onFailure { e ->
-                        if (_uiState.value.profiles.size == 1) {
-                            _uiState.value = _uiState.value.copy(error = e.message ?: "加载项目失败")
-                        }
+                        failures += "${profile.name}: ${e.message ?: "加载项目失败"}"
                     }
                     statusResult.onSuccess { status ->
                         _uiState.value = _uiState.value.copy(
@@ -279,6 +281,10 @@ class SessionListViewModel(
                                 ),
                         )
                     }
+                }
+                if (failures.isNotEmpty()) {
+                    // 多设备也提示具体哪台失败，避免项目列表静默空白
+                    _uiState.value = _uiState.value.copy(error = failures.joinToString("；"))
                 }
                 _uiState.value = _uiState.value.copy(loading = false, refreshing = false)
             }
@@ -300,10 +306,14 @@ class SessionListViewModel(
                 .onSuccess { sessions ->
                     _uiState.value = _uiState.value.copy(
                         sessionsByProject = _uiState.value.sessionsByProject + (key to sessions),
+                        projectErrors = _uiState.value.projectErrors - key,
                     )
                 }
                 .onFailure { e ->
-                    _uiState.value = _uiState.value.copy(error = e.message ?: "加载会话失败")
+                    // 失败 ≠ 无会话：记录到 projectErrors，UI 区分显示「加载失败」与「暂无会话」
+                    _uiState.value = _uiState.value.copy(
+                        projectErrors = _uiState.value.projectErrors + (key to (e.message ?: "加载会话失败")),
+                    )
                 }
         }
     }

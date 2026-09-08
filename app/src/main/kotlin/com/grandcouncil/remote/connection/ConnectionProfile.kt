@@ -25,7 +25,7 @@ data class ConnectionProfile(
     val password: String = "",
     /** serve pool 项目颜色（来自 /manifest color），用于会话列表着色 */
     val color: String = "",
-    val timeoutMs: Long = 10_000L,
+    val timeoutMs: Long = 20_000L,
     // TODO(M2)：自签名 TLS 开关——需自定义 TrustManager（穿透域名证书可选）
     val allowSelfSignedTls: Boolean = false,
 ) {
