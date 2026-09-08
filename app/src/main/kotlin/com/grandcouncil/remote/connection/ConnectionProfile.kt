@@ -14,7 +14,7 @@ data class ConnectionProfile(
     val agentType: AgentType = AgentType.REASONIX,
     /** 穿透方式预设（向导/帮助文案用） */
     val type: ConnectionType = ConnectionType.LAN,
-    /** http(s)://host:port，如 https://xxx.iepose.cn / http://100.x.x.x:8787 */
+    /** http(s)://host:port，如 https://xxx.iepose.cn / http://100.x.x.x:18789 */
     val baseUrl: String,
     val authMode: AuthMode = AuthMode.NONE,
     /** 网关项目路由前缀（单入口网关场景）：非空时 baseUrl 拼接 /p/<projectId>/ */

@@ -264,7 +264,7 @@ private fun ChatEmptyHint(
             title = { Text("使用指南") },
             text = {
                 Text(
-                    "1. 电脑上运行：reasonix serve --addr 0.0.0.0:8787 --auth token\n" +
+                    "1. 电脑上运行：reasonix serve --addr 0.0.0.0:18789 --auth token\n" +
                         "2. 手机「向导」添加连接（局域网/穿透均可）\n" +
                         "3. 测试通过后保存，会话列表自动出现\n" +
                         "4. 长按会话可左滑删除；审批会推送通知",

@@ -20,8 +20,10 @@ object ConnectionGuide {
         ConnectionType.NODE_XIAOBAO -> listOf(
             SERVE_START,
             "电脑安装节点小宝客户端并用同一账号登录",
-            "创建隧道：内网地址 127.0.0.1:18789",
-            "App 中填入隧道地址 https://xxx.iepose.cn",
+            // 两种用法：隧道（.iepose.cn 域名，走 80/443）或组网（分配 100.x 内网 IP，直接访问 18789）
+            "隧道模式：创建隧道，内网地址 127.0.0.1:18789，App 中填 https://xxx.iepose.cn",
+            "组网模式：直接填 http://<组网分配的内网IP>:18789——端口必须是 18789（不是 80），"
+                + "组网只提供内网 IP 不改变 serve 端口",
         )
 
         ConnectionType.ORAY -> listOf(
@@ -33,9 +35,10 @@ object ConnectionGuide {
 
         ConnectionType.TAILSCALE -> listOf(
             SERVE_START,
-            "电脑与手机安装 Tailscale 并登录同一账号",
-            "电脑上 tailscale ip 查 100.x 网段地址",
-            "App 中填入 http://100.x.x.x:18789（组网已加密，无需 HTTPS）",
+            "电脑与手机安装 Tailscale/节点小宝组网 并登录同一账号",
+            "电脑上 tailscale ip（或组网客户端分配的内网 IP）查 100.x 网段地址",
+            "App 中填入 http://100.x.x.x:18789——注意端口必须是 18789（不是 80），"
+                + "serve 监听在 18789，组网只提供内网 IP 不改变端口",
         )
 
         ConnectionType.FRP -> listOf(

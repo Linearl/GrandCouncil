@@ -295,8 +295,8 @@ private fun ProfileEditorDialog(
                     OutlinedField(stringResource(R.string.field_password), password) { password = it }
                 }
                 OutlinedField(stringResource(R.string.field_timeout), timeout) { timeout = it }
-                // C2 宿主侧命令：按表单值生成 serve 启动命令（端口取 baseUrl，默认 8787）
-                val port = Regex(":(\\d+)").find(baseUrl)?.groupValues?.get(1) ?: "8787"
+                // C2 宿主侧命令：按表单值生成 serve 启动命令（端口取 baseUrl，默认 18789）
+                val port = Regex(":(\\d+)").find(baseUrl)?.groupValues?.get(1) ?: "18789"
                 val cmd = "reasonix serve --addr 0.0.0.0:$port" +
                     (if (authMode == com.grandcouncil.remote.connection.AuthMode.NONE) "" else " --auth ${authMode.name.lowercase()}")
                 var copied by remember { mutableStateOf(false) }

@@ -8,10 +8,10 @@ import kotlinx.serialization.Serializable
  */
 @Serializable
 enum class ConnectionType(val label: String, val exampleUrl: String, val enabled: Boolean = true) {
-    /** 局域网直连（开发期主力）：http://192.168.x.x:8787；模拟器访问宿主机用 10.0.2.2 */
-    LAN("局域网直连", "http://192.168.1.100:8787"),
+    /** 局域网直连（开发期主力）：http://192.168.x.x:18789；模拟器访问宿主机用 10.0.2.2 */
+    LAN("局域网直连", "http://192.168.1.100:18789"),
     /** Tailscale（WireGuard P2P 组网，100.x 网段） */
-    TAILSCALE("Tailscale", "http://100.x.x.x:8787"),
+    TAILSCALE("Tailscale", "http://100.x.x.x:18789"),
     /** 节点小宝（玩物科技托管隧道，.iepose.cn 域名） */
     NODE_XIAOBAO("节点小宝", "https://xxx.iepose.cn"),
     /** 花生壳（贝锐托管隧道，.oray.com 域名）——暂不可用 */

@@ -91,7 +91,7 @@ class ConnectionTester {
         } catch (e: Exception) {
             return TestResult(Step.Network, false, "地址格式无效，请检查是否以 http(s):// 开头", e.message)
         }
-        val host = parsed.host ?: return TestResult(Step.Network, false, "地址缺少主机名（示例：http://192.168.1.100:8787）")
+        val host = parsed.host ?: return TestResult(Step.Network, false, "地址缺少主机名（示例：http://192.168.1.100:18789）")
         val port = if (parsed.port > 0) parsed.port else if (parsed.scheme == "https") 443 else 80
         val timeoutMs = interactiveTimeoutMs.coerceIn(1000L, 30_000L).toInt()
 
@@ -165,7 +165,19 @@ class ConnectionTester {
                 "TLS 证书错误——试试 http:// 地址，或检查穿透域名的证书",
             )
         } catch (e: Exception) {
-            TestResult(Step.Handshake, false, "请求失败：${e.message?.take(80) ?: e.javaClass.simpleName}")
+            val msg = e.message ?: e.javaClass.simpleName
+            // unexpected end of stream：HTTP 流被中途切断，最常见是「端口上不是 Reasonix serve」
+            //（如误填 80/其他端口），或穿透代理把握手掐断。给用户明确可行动的提示。
+            if (msg.contains("unexpected end of stream") || msg.contains("EOF") ||
+                e is java.io.EOFException
+            ) {
+                TestResult(
+                    Step.Handshake, false,
+                    "该端口不是 Reasonix serve——请确认用 18789 端口（当前地址会连到非 serve 服务）",
+                )
+            } else {
+                TestResult(Step.Handshake, false, "请求失败：${msg.take(80)}")
+            }
         }
     }
 }

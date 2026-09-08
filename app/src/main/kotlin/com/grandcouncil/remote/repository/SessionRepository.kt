@@ -28,15 +28,18 @@ class SessionRepository {
         }
 
     /** 列出 serve pool 网关的项目列表（GET /manifest），供设备→项目分层展示 */
+    // /manifest 通常很小（项目名/颜色），但节点小宝 2Mbps 下也需容忍；用专属 45s
     suspend fun listProjects(profile: ConnectionProfile): Result<List<ProjectEntryDto>> =
         runCatching {
-            HttpClientFactory.createApi(profile).manifest()
+            HttpClientFactory.createApi(profile.copy(timeoutMs = 45_000L)).manifest()
         }
 
     /** 懒加载某项目的会话列表（经 /p/<projectId>/sessions，只读取不复用/不接管） */
+    // 项目会话列表承载会话标题/时间/状态，慢速链路（节点小宝 2Mbps）下数据量最大，最容易超时。
+    // 用专属 45s，且不依赖用户保存的 timeoutMs（旧连接可能是 10s/20s）。
     suspend fun listSessionsForProject(profile: ConnectionProfile, projectId: String): Result<List<RemoteSession>> =
         runCatching {
-            AgentAdapterFactory.create(profile.copy(projectId = projectId)).listSessions()
+            AgentAdapterFactory.create(profile.copy(projectId = projectId, timeoutMs = 45_000L)).listSessions()
                 .filter { s -> !s.path.contains("-recovery-") }
         }
 
