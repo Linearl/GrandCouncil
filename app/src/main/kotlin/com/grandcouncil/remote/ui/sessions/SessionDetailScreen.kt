@@ -12,6 +12,7 @@ import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -51,6 +52,9 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -197,20 +201,13 @@ fun SessionDetailScreen(
                 },
                 actions = {
                     if (session?.heldBy == HeldBy.OTHER) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                "🔒 只读",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(end = 4.dp),
-                            )
-                            TextButton(
-                                onClick = { viewModel.takeover() },
-                                enabled = !state.takingOver,
-                            ) {
-                                Text(if (state.takingOver) "接管中…" else "接管")
-                            }
-                        }
+                        // 只读标识（接管入口在页面中心，避免顶部与中心重复）
+                        Text(
+                            "🔒 只读",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(end = 8.dp),
+                        )
                     } else if (session != null && !state.ownershipReleased) {
                         // GC（serve 侧）持有或 FREE：提供显式释放入口
                         TextButton(
@@ -396,7 +393,7 @@ fun SessionDetailScreen(
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text(
-                        "该会话被其他设备持有，只读查看；发送消息将接管会话",
+                        "该会话正在桌面端使用，当前只读查看。点击页面中心「获取所有权」按钮可接管（不会自动获取）。",
                         style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                     )
@@ -497,6 +494,40 @@ fun SessionDetailScreen(
                                 contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
                             ) {
                                 Text("↓")
+                            }
+                        }
+                        // 中心「获取所有权」：desktop 正在使用（heldBy=OTHER）时，页面中心
+                        // 显示一个醒目按钮，用户显式点击才接管；不自动获取所有权。
+                        if (session?.heldBy == HeldBy.OTHER && !state.ownershipReleased) {
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Card(
+                                    onClick = { viewModel.takeover() },
+                                    modifier = Modifier.padding(24.dp),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                    ),
+                                    elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
+                                ) {
+                                    Column(
+                                        Modifier.padding(horizontal = 24.dp, vertical = 18.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                    ) {
+                                        Text("🔒 只读查看", style = MaterialTheme.typography.titleSmall)
+                                        Text(
+                                            "该会话正在桌面端使用，当前只读",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.padding(top = 4.dp),
+                                        )
+                                        Spacer(Modifier.height(12.dp))
+                                        Button(
+                                            onClick = { viewModel.takeover() },
+                                            enabled = !state.takingOver,
+                                        ) {
+                                            Text(if (state.takingOver) "获取中…" else "获取所有权")
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -612,6 +643,7 @@ private fun InputBar(
     voiceSlot: @Composable () -> Unit = {},
 ) {
     val haptic = LocalHapticFeedback.current
+    val context = LocalContext.current
     val imeVisible = WindowInsets.isImeVisible
     // IME 弹出时底部两角变直角（贴合键盘）；否则大圆角悬浮容器
     val containerShape = if (imeVisible) {
@@ -633,29 +665,51 @@ private fun InputBar(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                // 联网开关（文档 §2.2）：开启高亮
-                IconButton(
-                    onClick = onToggleWebSearch,
-                    enabled = !readOnly,
+                // 联网开关（文档 §2.2）：只留图标，长按提示状态。
+                // 配色参考 rikkahub：开启 primary 前景 + primaryContainer 底色，关闭 onSurface，
+                // animateColorAsState 平滑渐变（不用呼吸动画，符合 rikkahub 惯例）。
+                val webColor by animateColorAsState(
+                    targetValue = if (webSearchEnabled) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurface,
+                    animationSpec = tween(200),
+                    label = "webColor",
+                )
+                val webBg by animateColorAsState(
+                    targetValue = if (webSearchEnabled) MaterialTheme.colorScheme.primaryContainer
+                    else Color.Transparent,
+                    animationSpec = tween(200),
+                    label = "webBg",
+                )
+                Box(
                     modifier = Modifier
                         .size(30.dp)
-                        .background(
-                            if (webSearchEnabled) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
-                            CircleShape,
-                        ),
+                        .background(webBg, CircleShape)
+                        .pointerInput(webSearchEnabled, readOnly) {
+                            detectTapGestures(
+                                onTap = { if (!readOnly) onToggleWebSearch() },
+                                onLongPress = {
+                                    Toast.makeText(
+                                        context,
+                                        if (webSearchEnabled) "联网已开启" else "联网已关闭（长按无效仅提示）",
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
+                                },
+                            )
+                        },
+                    contentAlignment = Alignment.Center,
                 ) {
                     Text(
                         "🌐",
                         style = MaterialTheme.typography.bodySmall,
+                        color = webColor,
                         modifier = Modifier.alpha(if (webSearchEnabled) 1f else 0.55f),
                     )
                 }
-                // 思考档位（文档 §2.4）：💭 + 当前档位；服务不支持时置灰
-                IconButton(
-                    onClick = onOpenEffort,
-                    enabled = !readOnly && !effortUnsupported,
+                // 思考档位（文档 §2.4）：只留图标，长按提示当前档位；服务不支持时置灰
+                Box(
                     modifier = Modifier
-                        .size(30.dp)
+                        .height(30.dp)
+                        .widthIn(min = 30.dp)
                         .background(
                             when {
                                 effortUnsupported -> MaterialTheme.colorScheme.surfaceVariant
@@ -663,23 +717,35 @@ private fun InputBar(
                                 else -> Color.Transparent
                             },
                             CircleShape,
-                        ),
+                        )
+                        .pointerInput(effortLabel, effortUnsupported, readOnly) {
+                            detectTapGestures(
+                                onTap = { if (!readOnly && !effortUnsupported) onOpenEffort() },
+                                onLongPress = {
+                                    Toast.makeText(
+                                        context,
+                                        if (effortUnsupported) "此服务不支持思考档位" else "思考档位：$effortLabel（轻/高/超重）",
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
+                                },
+                            )
+                        },
+                    contentAlignment = Alignment.Center,
                 ) {
                     Text(
-                        if (effortUnsupported) "💭" else "💭 $effortLabel",
-                        style = MaterialTheme.typography.labelSmall,
+                        "💭",
+                        style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier.alpha(if (effortUnsupported) 0.4f else 1f),
                     )
                 }
-                // 审批模式（权限控制）：⚡ 三档，DropdownMenu
+                // 审批模式（权限控制）：⚡ 只留图标，长按提示当前档位，点击弹菜单
                 val currentMode = ApprovalMode.entries.firstOrNull { it.wire == approvalMode } ?: ApprovalMode.ASK
                 var modeMenu by remember { mutableStateOf(false) }
                 Box {
-                    IconButton(
-                        onClick = { modeMenu = true },
-                        enabled = !readOnly,
+                    Box(
                         modifier = Modifier
-                            .size(30.dp)
+                            .height(30.dp)
+                            .widthIn(min = 30.dp)
                             .background(
                                 if (currentMode == ApprovalMode.YOLO) {
                                     MaterialTheme.colorScheme.errorContainer
@@ -689,11 +755,25 @@ private fun InputBar(
                                     Color.Transparent
                                 },
                                 CircleShape,
-                            ),
+                            )
+                            .pointerInput(currentMode, readOnly) {
+                                detectTapGestures(
+                                    onTap = { if (!readOnly) modeMenu = true },
+                                    onLongPress = {
+                                        Toast.makeText(
+                                            context,
+                                            "审批模式：${currentMode.label}",
+                                            Toast.LENGTH_SHORT,
+                                        ).show()
+                                    },
+                                )
+                            },
+                        contentAlignment = Alignment.Center,
                     ) {
                         Text(
-                            "⚡ ${currentMode.label}",
-                            style = MaterialTheme.typography.labelSmall,
+                            "⚡",
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.alpha(if (readOnly) 0.4f else 1f),
                         )
                     }
                     DropdownMenu(expanded = modeMenu, onDismissRequest = { modeMenu = false }) {

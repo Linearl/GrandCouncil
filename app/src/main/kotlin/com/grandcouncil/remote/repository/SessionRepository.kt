@@ -75,7 +75,9 @@ class SessionRepository {
         session: RemoteSession,
     ): Result<List<RemoteMessage>> = withContext(Dispatchers.IO) {
         runCatching {
-            AgentAdapterFactory.create(profile).loadSessionHistory(session)
+            // 会话历史承载完整消息正文，慢速链路（节点小宝 2Mbps）下数据量最大，
+            // 用专属 45s 覆盖首拉，避免 loading 卡住或误报超时。
+            AgentAdapterFactory.create(profile.copy(timeoutMs = 45_000L)).loadSessionHistory(session)
         }
     }
 

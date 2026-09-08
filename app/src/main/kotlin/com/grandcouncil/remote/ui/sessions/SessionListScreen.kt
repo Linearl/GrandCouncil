@@ -1,6 +1,11 @@
 package com.grandcouncil.remote.ui.sessions
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -829,12 +834,41 @@ private fun SessionItem(
                             Text("★", color = MaterialTheme.colorScheme.tertiary)
                         }
                         if (session.heldBy == HeldBy.OTHER) {
-                            Icon(
-                                Icons.Filled.Lock,
-                                contentDescription = "只读",
-                                tint = MaterialTheme.colorScheme.tertiary,
-                                modifier = Modifier.padding(start = 4.dp),
+                            // desktop 正在使用（工作态）：呼吸动画锁图标，更醒目
+                            val breath = rememberInfiniteTransition(label = "heldByOther")
+                            val pulseAlpha by breath.animateFloat(
+                                initialValue = 0.35f,
+                                targetValue = 1f,
+                                animationSpec = infiniteRepeatable(
+                                    animation = tween(700),
+                                    repeatMode = RepeatMode.Reverse,
+                                ),
+                                label = "pulseAlpha",
                             )
+                            val pulseScale by breath.animateFloat(
+                                initialValue = 0.85f,
+                                targetValue = 1.1f,
+                                animationSpec = infiniteRepeatable(
+                                    animation = tween(700),
+                                    repeatMode = RepeatMode.Reverse,
+                                ),
+                                label = "pulseScale",
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .padding(start = 4.dp)
+                                    .graphicsLayer {
+                                        scaleX = pulseScale
+                                        scaleY = pulseScale
+                                        alpha = pulseAlpha
+                                    },
+                            ) {
+                                Icon(
+                                    Icons.Filled.Lock,
+                                    contentDescription = "桌面使用中（只读）",
+                                    tint = MaterialTheme.colorScheme.tertiary,
+                                )
+                            }
                         }
                     }
                 }
