@@ -175,6 +175,14 @@ fun SessionDetailScreen(
     // 每次进入（会话切换/组合重建）强制重新加载，避免旧快照/残留流式状态
     LaunchedEffect(session?.id) { viewModel.load() }
 
+    // 释放所有权反馈：点击「释放所有权」后弹 Toast 告知结果（成功/失败），消费后清空
+    LaunchedEffect(state.releaseMessage) {
+        state.releaseMessage?.let { msg ->
+            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+            viewModel.clearReleaseMessage()
+        }
+    }
+
     // 工作中滚动展示（聊天滚动跟随修复指导）：snapshotFlow 持续监听可见项——
     // 推理/工具/文本任何更新都触发判定；生成中 + 用户未滚动 + 底部附近 +
     // 距上次用户滚动 > 1.5s 才瞬时 scrollToItem；生成结束不强制拉回
@@ -212,8 +220,9 @@ fun SessionDetailScreen(
                         // GC（serve 侧）持有或 FREE：提供显式释放入口
                         TextButton(
                             onClick = { viewModel.releaseOwnership() },
+                            enabled = !state.releasingOwnership,
                         ) {
-                            Text("释放所有权")
+                            Text(if (state.releasingOwnership) "释放中…" else "释放所有权")
                         }
                     }
                     // 右上角「新建对话」（对标 rikkahub New Message）：进入空白新会话草稿

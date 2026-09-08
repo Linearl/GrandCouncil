@@ -56,6 +56,10 @@ data class SessionDetailUiState(
     val approvalMode: String? = null,
     /** 已主动释放所有权（详情页提示状态） */
     val ownershipReleased: Boolean = false,
+    /** 「释放所有权」按钮进行中（POST /release-session 等待） */
+    val releasingOwnership: Boolean = false,
+    /** 释放所有权的一次性反馈消息（成功/失败；UI 消费后清空） */
+    val releaseMessage: String? = null,
     val error: String? = null,
     /** T7 上下文用量：(used, window) token；null=未加载/不可用 */
     val contextUsed: Int? = null,
@@ -188,10 +192,27 @@ class SessionDetailViewModel(
     fun releaseOwnership() {
         val s = session ?: return
         viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(releasingOwnership = true, releaseMessage = null)
             repository.releaseOwnership(profile, profile.projectId, s.id)
-                .onSuccess { _uiState.value = _uiState.value.copy(ownershipReleased = true) }
-                .onFailure { e -> _uiState.value = _uiState.value.copy(error = e.message ?: "释放失败") }
+                .onSuccess {
+                    _uiState.value = _uiState.value.copy(
+                        releasingOwnership = false,
+                        ownershipReleased = true,
+                        releaseMessage = "已释放所有权，桌面端可立即重新获取",
+                    )
+                }
+                .onFailure { e ->
+                    _uiState.value = _uiState.value.copy(
+                        releasingOwnership = false,
+                        releaseMessage = "释放失败：${e.message ?: "未知错误"}",
+                    )
+                }
         }
+    }
+
+    /** UI 消费完释放反馈后清空（避免重复弹） */
+    fun clearReleaseMessage() {
+        _uiState.value = _uiState.value.copy(releaseMessage = null)
     }
 
     /** 显式接管会话（「接管」按钮触发；POST /p/<id>/takeover-session；成功后重载刷新 heldBy） */
