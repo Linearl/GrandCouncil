@@ -7,6 +7,8 @@ import com.grandcouncil.remote.api.dto.ApprovalEventDto
 import com.grandcouncil.remote.api.dto.ServeEventKind
 import com.grandcouncil.remote.api.dto.ToolEventDto
 import com.grandcouncil.remote.connection.ConnectionProfile
+import com.grandcouncil.remote.model.AgentType
+import com.grandcouncil.remote.model.HeldBy
 import com.grandcouncil.remote.model.RemoteMessage
 import com.grandcouncil.remote.model.RemoteSession
 import com.grandcouncil.remote.model.Role
@@ -266,6 +268,8 @@ class SessionDetailViewModel(
 
                     ServeEventKind.REASONING -> {
                         val s = _uiState.value.streaming ?: return@collect
+                        // 观察态（desktop 正在使用，GC 只读）：渲染做 ~1s 时延，跟随 desktop 输出
+                        if (session?.heldBy == HeldBy.OTHER) delay(1000)
                         _uiState.value = _uiState.value.copy(
                             streaming = s.copy(reasoning = s.reasoning + event.text),
                         )
@@ -273,6 +277,8 @@ class SessionDetailViewModel(
 
                     ServeEventKind.TEXT -> {
                         val s = _uiState.value.streaming ?: return@collect
+                        // 观察态（desktop 正在使用，GC 只读）：渲染做 ~1s 时延，跟随 desktop 输出
+                        if (session?.heldBy == HeldBy.OTHER) delay(1000)
                         _uiState.value = _uiState.value.copy(
                             streaming = s.copy(text = s.text + event.text),
                         )
@@ -397,6 +403,14 @@ class SessionDetailViewModel(
         if (raw.isEmpty()) return
         viewModelScope.launch {
             val st = _uiState.value
+            // 自动获取所有权：发送前若 GC 未持有该会话（FREE 或 desktop 使用中），
+            // 先 takeover 再发送。desktop 正在生成时会被打断（用户已确认可接受）。
+            val s = session
+            if (s != null && s.heldBy != HeldBy.ME) {
+                repository.takeoverSession(profile, profile.projectId, s)
+                    .onSuccess { load() }  // 接管成功后重载刷新 heldBy/ownership
+                // 接管失败不阻断：仍尝试 submit（serve 可能允许或返回明确错误）
+            }
             // 联网注入：开启时消息末尾追加注入文本（文档 §2.2）
             val input = if (st.webSearchEnabled) {
                 "$raw\n\n${st.webSearchPrompt}"

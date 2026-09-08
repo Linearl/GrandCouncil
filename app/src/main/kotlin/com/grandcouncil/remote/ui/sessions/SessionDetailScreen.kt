@@ -505,12 +505,18 @@ fun SessionDetailScreen(
                                 Text("↓")
                             }
                         }
-                        // 中心「获取所有权」：desktop 正在使用（heldBy=OTHER）时，页面中心
-                        // 显示一个醒目按钮，用户显式点击才接管；不自动获取所有权。
-                        if (session?.heldBy == HeldBy.OTHER && !state.ownershipReleased) {
+                        // 中心所有权按钮：桌面使用中→获取所有权；GC 已持有→释放所有权。
+                        // 进会话默认只读（不自动获取）；发送消息才自动获取。释放后隐藏。
+                        if (!state.ownershipReleased && session != null) {
+                            val held = session.heldBy
+                            val isHeldByMe = held == HeldBy.ME
+                            val isOther = held == HeldBy.OTHER
                             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                 Card(
-                                    onClick = { viewModel.takeover() },
+                                    onClick = {
+                                        if (isHeldByMe) viewModel.releaseOwnership()
+                                        else viewModel.takeover()
+                                    },
                                     modifier = Modifier.padding(24.dp),
                                     colors = CardDefaults.cardColors(
                                         containerColor = MaterialTheme.colorScheme.primaryContainer,
@@ -521,19 +527,36 @@ fun SessionDetailScreen(
                                         Modifier.padding(horizontal = 24.dp, vertical = 18.dp),
                                         horizontalAlignment = Alignment.CenterHorizontally,
                                     ) {
-                                        Text("🔒 只读查看", style = MaterialTheme.typography.titleSmall)
                                         Text(
-                                            "该会话正在桌面端使用，当前只读",
+                                            if (isOther) "🔒 只读查看（桌面端使用中）"
+                                            else if (isHeldByMe) "✓ 已获得所有权"
+                                            else "🔓 空闲会话",
+                                            style = MaterialTheme.typography.titleSmall,
+                                        )
+                                        Text(
+                                            if (isOther) "该会话正在桌面端使用，当前只读；点击按钮获取所有权"
+                                            else if (isHeldByMe) "桌面端已释放；点击可重新释放给桌面端"
+                                            else "该会话空闲；点击获取所有权即可使用",
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                             modifier = Modifier.padding(top = 4.dp),
                                         )
                                         Spacer(Modifier.height(12.dp))
                                         Button(
-                                            onClick = { viewModel.takeover() },
-                                            enabled = !state.takingOver,
+                                            onClick = {
+                                                if (isHeldByMe) viewModel.releaseOwnership()
+                                                else viewModel.takeover()
+                                            },
+                                            enabled = !state.takingOver && !state.releasingOwnership,
                                         ) {
-                                            Text(if (state.takingOver) "获取中…" else "获取所有权")
+                                            Text(
+                                                when {
+                                                    state.takingOver -> "获取中…"
+                                                    state.releasingOwnership -> "释放中…"
+                                                    isHeldByMe -> "释放所有权"
+                                                    else -> "获取所有权"
+                                                },
+                                            )
                                         }
                                     }
                                 }
