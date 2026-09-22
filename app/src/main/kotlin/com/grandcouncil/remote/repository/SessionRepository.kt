@@ -12,6 +12,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import com.grandcouncil.remote.DeviceIdentity
 import kotlinx.serialization.json.buildJsonObject
 
 /**
@@ -44,11 +45,25 @@ class SessionRepository {
         }
 
     /** 显式接管会话（用户点「接管」按钮才触发；POST /p/<projectId>/takeover-session，body {"name","from"}） */
-    /** POST /heartbeat — 远程持有会话存活心跳（serve 端 90s 无心跳自动释放 lease） */
+    /** POST /heartbeat — 设备租约心跳（任务 36 Phase 2：按 deviceID 分组，serve 端 90s 无心跳自动释放整个设备租约） */
     suspend fun heartbeat(profile: ConnectionProfile, projectId: String?, sessionName: String): Result<Unit> =
         runCatching {
             HttpClientFactory.createApi(profile.copy(projectId = projectId)).heartbeat(
-                buildJsonObject { put("name", JsonPrimitive(sessionName)) },
+                buildJsonObject {
+                    put("name", JsonPrimitive(sessionName))
+                    put("device_id", JsonPrimitive(DeviceIdentity.id()))
+                },
+            )
+        }
+
+    /** POST /heartbeat release — onStop 立即释放整个设备租约（不等 90s 过期；任务 36 Phase 2） */
+    suspend fun releaseDeviceLease(profile: ConnectionProfile, projectId: String?): Result<Unit> =
+        runCatching {
+            HttpClientFactory.createApi(profile.copy(projectId = projectId)).heartbeat(
+                buildJsonObject {
+                    put("device_id", JsonPrimitive(DeviceIdentity.id()))
+                    put("release", JsonPrimitive(true))
+                },
             )
         }
 
@@ -64,7 +79,12 @@ class SessionRepository {
         withContext(Dispatchers.IO) {
             runCatching {
                 HttpClientFactory.createApi(profile.copy(projectId = projectId)).takeoverSession(
-                    buildJsonObject { put("name", JsonPrimitive(session.id)) },
+                    buildJsonObject {
+                        put("name", JsonPrimitive(session.id))
+                        // 任务 36：from = 本设备 id —— serve 接管成功后据此
+                        // 通知桌面端切换运行时只读（设备维度）。
+                        put("from", JsonPrimitive(DeviceIdentity.id()))
+                    },
                 )
             }.map { }
         }
