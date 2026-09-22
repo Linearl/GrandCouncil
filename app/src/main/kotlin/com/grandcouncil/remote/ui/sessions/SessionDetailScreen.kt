@@ -361,10 +361,16 @@ fun SessionDetailScreen(
                 InputBar(
                     input = input,
                     running = state.running,
-                    readOnly = session?.heldBy == HeldBy.OTHER,
+                    // 任务 36 Phase 0：GC 连上默认只读——非 GC 持有（FREE 或
+                    // 桌面占用）输入禁用，发送按钮显式「接管并发送」。
+                    readOnly = session != null && session.heldBy != HeldBy.ME,
                     onInput = { input = it },
                     onSend = {
-                        viewModel.send(input)
+                        if (session != null && session.heldBy != HeldBy.ME) {
+                            viewModel.takeoverThenSend(input)
+                        } else {
+                            viewModel.send(input)
+                        }
                         input = ""
                     },
                     onStop = { viewModel.cancel() },
@@ -378,7 +384,7 @@ fun SessionDetailScreen(
                     voiceSlot = {
                         VoiceInputButton(
                             onResult = { text -> input = if (input.isBlank()) text else "$input $text" },
-                            readOnly = session?.heldBy == HeldBy.OTHER,
+                            readOnly = session != null && session.heldBy != HeldBy.ME,
                         )
                     },
                 )
@@ -402,7 +408,7 @@ fun SessionDetailScreen(
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text(
-                        "该会话正在桌面端使用，当前只读查看。点击页面中心「获取所有权」按钮可接管（不会自动获取）。",
+                        "该会话正在桌面端使用，当前只读查看。接管须显式点击（「获取所有权」或输入栏「接管」），系统不会自动夺取。",
                         style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                     )
@@ -506,7 +512,8 @@ fun SessionDetailScreen(
                             }
                         }
                         // 中心所有权按钮：桌面使用中→获取所有权；GC 已持有→释放所有权。
-                        // 进会话默认只读（不自动获取）；发送消息才自动获取。释放后隐藏。
+                        // 进会话默认只读（任务 36：接管只走显式按钮，
+                        // send() 不再隐式获取）。释放后隐藏。
                         if (!state.ownershipReleased && session != null) {
                             val held = session.heldBy
                             val isHeldByMe = held == HeldBy.ME
@@ -849,7 +856,7 @@ private fun InputBar(
                     placeholder = {
                         Text(
                             when {
-                                readOnly -> "只读会话（发送将接管）"
+                                readOnly -> "非 GC 持有 · 点「接管并发送」显式接管"
                                 webSearchEnabled -> "🌐 已开启联网 · 回复或输入指令…"
                                 else -> "回复或输入指令…"
                             },
@@ -881,10 +888,17 @@ private fun InputBar(
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                             onSend()
                         },
-                        enabled = input.isNotBlank() && !readOnly,
+                        // 只读态按钮是接管入口（输入为空=仅接管，非空=接管并发送），
+                        // 因此保持可点；可写态仍需有内容才发。
+                        enabled = readOnly || input.isNotBlank(),
                         modifier = Modifier.background(MaterialTheme.colorScheme.primary, CircleShape),
                     ) {
-                        Text("↑", color = MaterialTheme.colorScheme.onPrimary)
+                        Text(
+                            if (readOnly) "接管" else "↑",
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            style = if (readOnly) MaterialTheme.typography.labelMedium
+                            else MaterialTheme.typography.titleMedium,
+                        )
                     }
                 }
             }

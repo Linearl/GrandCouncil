@@ -236,6 +236,27 @@ class SessionDetailViewModel(
         }
     }
 
+    /** 显式「接管并发送」按钮路径（任务 36 Phase 0）：接管成功后若输入非空
+     *  连带发送；input 为空则仅完成接管（输入框随后启用）。接管失败只提示。 */
+    fun takeoverThenSend(text: String) {
+        val s = session ?: return
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(takingOver = true, error = null)
+            repository.takeoverSession(profile, profile.projectId, s)
+                .onSuccess {
+                    _uiState.value = _uiState.value.copy(takingOver = false)
+                    load()
+                    if (text.isNotBlank()) send(text)
+                }
+                .onFailure { e ->
+                    _uiState.value = _uiState.value.copy(
+                        takingOver = false,
+                        error = e.message ?: "接管失败（可能该会话被占用且未释放或 serve 不支持接管）",
+                    )
+                }
+        }
+    }
+
     /** 切换工具审批模式（询问/自动/YOLO——避免工具调用被审批卡住） */
     fun setApprovalMode(mode: ApprovalMode) {
         _uiState.value = _uiState.value.copy(approvalMode = mode.wire)
@@ -403,14 +424,9 @@ class SessionDetailViewModel(
         if (raw.isEmpty()) return
         viewModelScope.launch {
             val st = _uiState.value
-            // 自动获取所有权：发送前若 GC 未持有该会话（FREE 或 desktop 使用中），
-            // 先 takeover 再发送。desktop 正在生成时会被打断（用户已确认可接受）。
-            val s = session
-            if (s != null && s.heldBy != HeldBy.ME) {
-                repository.takeoverSession(profile, profile.projectId, s)
-                    .onSuccess { load() }  // 接管成功后重载刷新 heldBy/ownership
-                // 接管失败不阻断：仍尝试 submit（serve 可能允许或返回明确错误）
-            }
+            // 任务 36 Phase 0：send() 不再隐式接管——接管只发生在显式按钮
+            // 路径（takeover() / takeoverThenSend()），本函数直发，serve
+            // 端的占用判定照常给出明确错误。
             // 联网注入：开启时消息末尾追加注入文本（文档 §2.2）
             val input = if (st.webSearchEnabled) {
                 "$raw\n\n${st.webSearchPrompt}"
