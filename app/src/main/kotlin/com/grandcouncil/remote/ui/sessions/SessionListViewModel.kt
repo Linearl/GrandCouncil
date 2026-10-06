@@ -62,6 +62,8 @@ data class SessionListUiState(
     val filter: SessionFilter = SessionFilter.ALL,
     /** 搜索关键词（标题过滤） */
     val searchQuery: String = "",
+    /** 搜索模式全量加载中（输入非空且部分项目会话未拉取时；任务 537） */
+    val searchLoading: Boolean = false,
     /** 本地收藏（标签）：sessionKey（profileId:sessionId）集合 */
     val favorites: Set<String> = emptySet(),
     val density: DensityPreset = DensityPreset.COMFORTABLE,
@@ -110,6 +112,26 @@ data class SessionListUiState(
 
     /** 在线设备数（服务器信息已加载的） */
     val onlineCount: Int get() = serveInfoByProfile.size
+
+    /**
+     * 搜索模式结果（任务 537）：query 非空时跨「全部已加载项目」的标题过滤，
+     * 遵守设备筛选。懒加载未拉取的项目不在结果内——VM 会在搜索时补拉
+     * （loadAllProjectSessionsForSearch），拉齐后此列表自动补全。
+     */
+    val searchResults: List<AggregatedSession>
+        get() {
+            val query = searchQuery.trim()
+            if (query.isEmpty()) return emptyList()
+            val visibleProfiles = if (deviceFilter == null) profiles
+            else profiles.filter { it.id == deviceFilter }
+            return visibleProfiles.flatMap { profile ->
+                (projectsByProfile[profile.id] ?: emptyList()).flatMap { project ->
+                    (sessionsByProject["${profile.id}:${project.id}"] ?: emptyList())
+                        .filter { it.title.contains(query, ignoreCase = true) }
+                        .map { AggregatedSession(it, profile, projectId = project.id) }
+                }
+            }
+        }
 }
 
 class SessionListViewModel(
@@ -166,6 +188,13 @@ class SessionListViewModel(
         searchInput.value = query
     }
 
+    /** 软键盘回车（IME_ACTION_SEARCH）：跳过防抖立即生效（任务 537 验收③） */
+    fun commitSearch(query: String) {
+        searchInput.value = query
+        _uiState.value = _uiState.value.copy(searchQuery = query.trim())
+        if (query.isNotBlank()) loadAllProjectSessionsForSearch()
+    }
+
     // 搜索 200ms 防抖（S4）：输入停止后过滤生效，避免每次按键全量过滤
     private val searchInput = MutableStateFlow("")
     init {
@@ -174,7 +203,43 @@ class SessionListViewModel(
                 .debounce(200)
                 .collect { q ->
                     _uiState.value = _uiState.value.copy(searchQuery = q)
+                    // 任务 537：搜索需要跨项目全量会话——懒加载未拉的项目在此补拉
+                    if (q.isNotBlank()) loadAllProjectSessionsForSearch()
                 }
+        }
+    }
+
+    /**
+     * 任务 537：把设备筛选范围内全部项目的会话拉齐（搜索过滤的数据面）。
+     * 只补缺失的 key，已加载的项目不重拉；并发拉取，全部落地后清 searchLoading。
+     */
+    private fun loadAllProjectSessionsForSearch() {
+        if (_uiState.value.searchLoading) return
+        val targets = _uiState.value.projectsByProfile
+            .filter { _uiState.value.deviceFilter == null || it.key == _uiState.value.deviceFilter }
+            .flatMap { (profileId, projects) -> projects.map { profileId to it.id } }
+            .filter { (profileId, projectId) ->
+                !_uiState.value.sessionsByProject.containsKey("$profileId:$projectId")
+            }
+        if (targets.isEmpty()) return
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(searchLoading = true)
+            kotlinx.coroutines.coroutineScope {
+                targets.forEach { (profileId, projectId) ->
+                    val profile = _uiState.value.profiles.firstOrNull { it.id == profileId }
+                        ?: return@forEach
+                    launch {
+                        repository.listSessionsForProject(profile, projectId).onSuccess { sessions ->
+                            val key = "$profileId:$projectId"
+                            _uiState.value = _uiState.value.copy(
+                                sessionsByProject = _uiState.value.sessionsByProject + (key to sessions),
+                                projectErrors = _uiState.value.projectErrors - key,
+                            )
+                        }
+                    }
+                }
+            }
+            _uiState.value = _uiState.value.copy(searchLoading = false)
         }
     }
 
@@ -237,6 +302,8 @@ class SessionListViewModel(
             projectErrors = emptyMap(),
         )
         refresh(showSpinner = true)
+        // 任务 537：搜索中手动刷新后搜索数据面被清空，重新补拉避免误显「无匹配会话」
+        if (_uiState.value.searchQuery.isNotBlank()) loadAllProjectSessionsForSearch()
     }
 
     fun refresh(showSpinner: Boolean = false) {
