@@ -98,4 +98,7 @@ dependencies {
 
     // Debug-only embedded API server (BuildConfig.DEBUG builds; see DebugApiServer)
     implementation("org.nanohttpd:nanohttpd:2.3.1") // release builds compile DebugApiServer too (runtime-guarded by FLAG_DEBUGGABLE)
+
+    // 单元测试（任务 542：连接身份归一化等价类）
+    testImplementation("junit:junit:4.13.2")
 }

@@ -37,6 +37,8 @@ class ConnectionViewModel(
                 _uiState.value = _uiState.value.copy(profiles = profiles)
             }
         }
+        // 任务 542：历史重复条目（同 URL 不同 id，如尾斜杠差异）启动时落盘收敛一次
+        viewModelScope.launch { connectionStore.convergeDuplicates() }
     }
 
     fun openEditor(profile: ConnectionProfile? = null) {
@@ -56,12 +58,8 @@ class ConnectionViewModel(
     }
 
     fun saveProfile(profile: ConnectionProfile) {
-        val current = _uiState.value.profiles
-        val updated = if (current.any { it.id == profile.id }) {
-            current.map { if (it.id == profile.id) profile else it }
-        } else {
-            current + profile
-        }
+        // 任务 542：按 URL 身份键合并——同一 serve 更新原条目（保留原 id），不再新增重复设备
+        val updated = ConnectionProfile.mergeByIdentity(_uiState.value.profiles, profile)
         viewModelScope.launch {
             connectionStore.save(updated)
             closeEditor()
@@ -77,12 +75,8 @@ class ConnectionViewModel(
             tester.test(profile) { results += it }
             val ok = results.isNotEmpty() && results.all { it.success }
             if (ok) {
-                val current = _uiState.value.profiles
-                val updated = if (current.any { it.id == profile.id }) {
-                    current.map { if (it.id == profile.id) profile else it }
-                } else {
-                    current + profile
-                }
+                // 任务 542：按 URL 身份键合并（同 saveProfile）
+                val updated = ConnectionProfile.mergeByIdentity(_uiState.value.profiles, profile)
                 connectionStore.save(updated)
                 _uiState.value = _uiState.value.copy(saving = false)
                 closeEditor()

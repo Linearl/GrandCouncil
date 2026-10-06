@@ -44,8 +44,60 @@ data class ConnectionProfile(
         return url
     }
 
+    /**
+     * 连接身份键（任务 542）：baseUrl 归一化后的比较键——同一 serve 只算一台设备。
+     * 规则：scheme/host 小写、去尾斜杠与路径、默认端口省略（http:80 / https:443）、
+     * 保留 scheme 语义（http ≠ https）。projectId 不参与（运行时注入的路由前缀）。
+     */
+    fun identityKey(): String {
+        var url = baseUrl.trim()
+        if (url.isEmpty()) return url
+        val scheme: String
+        val rest: String
+        when {
+            url.startsWith("http://") -> { scheme = "http"; rest = url.removePrefix("http://") }
+            url.startsWith("https://") -> { scheme = "https"; rest = url.removePrefix("https://") }
+            else -> { scheme = "http"; rest = url }
+        }
+        // 去尾斜杠与路径（设备身份只看 host:port；/p/<id> 前缀是运行时拼接的）
+        var hostPort = rest.trimEnd('/').substringBefore('/')
+        val host: String
+        var port: String? = null
+        val colon = hostPort.lastIndexOf(':')
+        if (colon > hostPort.lastIndexOf(']')) {
+            host = hostPort.substring(0, colon)
+            port = hostPort.substring(colon + 1).takeIf { it.isNotEmpty() }
+        } else {
+            host = hostPort
+        }
+        if ((scheme == "http" && port == "80") || (scheme == "https" && port == "443")) {
+            port = null
+        }
+        return "$scheme://${host.lowercase()}${if (port != null) ":$port" else ""}"
+    }
+
     companion object {
         fun newId(): String = "conn-${java.util.UUID.randomUUID()}"
+
+        /** 按身份键去重（任务 542）：同一 serve 只保留最早创建的一条。 */
+        fun dedupeByIdentity(profiles: List<ConnectionProfile>): List<ConnectionProfile> {
+            val seen = mutableSetOf<String>()
+            return profiles.filter { seen.add(it.identityKey()) }
+        }
+
+        /** 合并保存（任务 542）：身份键相同的条目被更新（保留原 id），否则追加。 */
+        fun mergeByIdentity(
+            current: List<ConnectionProfile>,
+            profile: ConnectionProfile,
+        ): List<ConnectionProfile> {
+            val key = profile.identityKey()
+            val existing = current.firstOrNull { it.identityKey() == key }
+            return if (existing != null) {
+                current.map { if (it.id == existing.id) profile.copy(id = existing.id) else it }
+            } else {
+                current + profile
+            }
+        }
     }
 }
 

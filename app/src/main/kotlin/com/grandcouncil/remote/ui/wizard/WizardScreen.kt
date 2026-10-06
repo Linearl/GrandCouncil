@@ -131,7 +131,8 @@ fun WizardScreen(modifier: Modifier = Modifier, onDone: () -> Unit = {}) {
                                 // Serve pool 网关：连接作为一个「设备」保存。
                                 // 设备下的项目/会话由会话列表层经 /manifest 懒加载展示
                                 //（点项目才拉该项目会话，不占用于桌面端）。
-                                store.save(existing + profile)
+                                // 任务 542：按 URL 身份键合并，同一 serve 不再生成第二台设备。
+                                store.save(ConnectionProfile.mergeByIdentity(existing, profile))
                                 saved = true
                             }
                         }
