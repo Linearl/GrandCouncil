@@ -57,7 +57,9 @@ class SessionRepository {
             )
         }
 
-    /** POST /heartbeat release — onStop 立即释放整个设备租约（不等 90s 过期；任务 36 Phase 2） */
+    /** POST /heartbeat release — onStop 立即释放整个设备租约（不等 90s 过期；任务 36 Phase 2）。
+     *  任务 538：这是唯一的释放路径（设备级）——会话级 /release-session 已删除，
+     *  serve 端 freeLeaseIfDeviceHeld 会据此释放锁并通知桌面端恢复可写。 */
     suspend fun releaseDeviceLease(profile: ConnectionProfile, projectId: String?): Result<Unit> =
         runCatching {
             HttpClientFactory.createApi(profile.copy(projectId = projectId)).heartbeat(
@@ -68,14 +70,8 @@ class SessionRepository {
             )
         }
 
-    /** POST /release-session — 主动释放所有权（to 缺省 = 不带 handoff 预约的纯释放；桌面端立即可重新获取） */
-    suspend fun releaseOwnership(profile: ConnectionProfile, projectId: String?, sessionName: String): Result<Unit> =
-        runCatching {
-            HttpClientFactory.createApi(profile.copy(projectId = projectId)).releaseSession(
-                buildJsonObject { put("name", JsonPrimitive(sessionName)) },
-            )
-        }
-
+    /** 显式获取所有权（任务 538：唯一的 acquire 入口，设备级语义——桌面弹窗确认后
+     *  serve 代持锁，from=device_id 驱动桌面端只读切换；保留 /takeover-session 端点） */
     suspend fun takeoverSession(profile: ConnectionProfile, projectId: String?, session: RemoteSession): Result<Unit> =
         withContext(Dispatchers.IO) {
             runCatching {

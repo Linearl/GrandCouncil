@@ -81,11 +81,8 @@ interface ReasonixApi {
     @POST("heartbeat")
     suspend fun heartbeat(@Body body: JsonObject): Unit
 
-    /** POST /release-session — 释放当前绑定的会话并给目标 writer 预留（body: {"name","to"}；204；非本运行时持有/回合运行中 → 409） */
-    @POST("release-session")
-    suspend fun releaseSession(@Body body: JsonObject): Unit
-
-    /** POST /takeover-session — 接管一个由 /release-session 预留的会话并重绑 controller（body: {"name","from"}；204；无有效预留 → 409） */
+    /** POST /takeover-session — 显式获取所有权（任务 538：GC 唯一 acquire 入口，设备级语义；
+     *  body: {"name","from"}；桌面弹窗确认后 serve 代持锁并按 from 切换只读 → 204；409=被拒绝） */
     @POST("takeover-session")
     suspend fun takeoverSession(@Body body: JsonObject): Unit
 
