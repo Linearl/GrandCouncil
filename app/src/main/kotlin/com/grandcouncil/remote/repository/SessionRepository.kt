@@ -2,6 +2,7 @@ package com.grandcouncil.remote.repository
 
 import com.grandcouncil.remote.agent.AgentAdapterFactory
 import com.grandcouncil.remote.api.HttpClientFactory
+import com.grandcouncil.remote.api.dto.ChildSessionDto
 import com.grandcouncil.remote.api.dto.ModelEntryDto
 import com.grandcouncil.remote.api.dto.ProjectEntryDto
 import com.grandcouncil.remote.api.dto.StatusDto
@@ -177,6 +178,25 @@ class SessionRepository {
             runCatching {
                 HttpClientFactory.createApi(profile).newSession()
             }.map { }
+        }
+
+    /** GET /capabilities — 能力宣告（任务 540：失败按空能力处理，入口静默隐藏） */
+    suspend fun capabilities(profile: ConnectionProfile): Result<List<String>> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                HttpClientFactory.createApi(profile).capabilities().capabilities
+            }
+        }
+
+    /**
+     * POST /spawn-child-session — 从当前会话派生子会话（任务 540）。
+     * serve 端实验开关关闭时路由不存在（404/405），Result 失败即入口不可用。
+     */
+    suspend fun spawnChildSession(profile: ConnectionProfile): Result<ChildSessionDto> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                HttpClientFactory.createApi(profile).spawnChildSession()
+            }
         }
 
     /** 删除会话（body: {"name": "<会话名不带 .jsonl>"}，源码确认） */

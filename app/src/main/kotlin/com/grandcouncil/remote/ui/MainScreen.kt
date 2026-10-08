@@ -144,6 +144,13 @@ fun MainScreen() {
                             profile = selected.profile.copy(projectId = selected.projectId),
                             session = selected.session,
                             modifier = Modifier.padding(padding),
+                            // 任务 540：派生子会话后直接切换选中（浏览位置同步记录）
+                            onOpenSession = { created ->
+                                if (created != null) {
+                                    selectedSession = AggregatedSession(created, selected.profile)
+                                    rememberPosition(selected.profile, created.id)
+                                }
+                            },
                         )
 
                         draft != null -> SessionDetailScreen(

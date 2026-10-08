@@ -77,6 +77,10 @@ data class SessionDetailUiState(
     val effortUnsupported: Boolean = false,
     /** 右上角「新建对话」进行中（POST /new 等待） */
     val newSessionBusy: Boolean = false,
+    /** serve 能力宣告含 "child-session"（任务 540：serve 实验开关开才显示派生入口；探测失败=false 静默） */
+    val childSessionAvailable: Boolean = false,
+    /** 「派生会话」进行中（POST /spawn-child-session 等待） */
+    val spawnChildBusy: Boolean = false,
     /** 发送后排队提示（§1.3：submit 后 3-5s 无事件） */
     val queued: Boolean = false,
     /** 「接管」按钮进行中（POST /takeover-session 等待） */
@@ -119,13 +123,20 @@ class SessionDetailViewModel(
                 _uiState.value = _uiState.value.copy(effortLevel = level)
             }
         }
+        // 任务 540：探测 serve 能力宣告（实验开关开才有 "child-session"）；
+        // 失败按不可用处理（老 serve/开关关 → 入口不出现，静默零暴露）。
+        viewModelScope.launch {
+            val caps = repository.capabilities(profile).getOrNull().orEmpty()
+            _uiState.value = _uiState.value.copy(childSessionAvailable = caps.contains("child-session"))
+        }
         load()
         observeEvents()
     }
 
     fun load() {
         viewModelScope.launch {
-            _uiState.value = SessionDetailUiState(loading = true)
+            // 保留能力探测结果（任务 540）：load 全量重置不能抹掉入口显隐判定
+            _uiState.value = SessionDetailUiState(loading = true, childSessionAvailable = _uiState.value.childSessionAvailable)
             if (session == null) {
                 // 草稿模式（新建会话）：无历史，直接就绪
                 _uiState.value = _uiState.value.copy(loading = false)
@@ -541,6 +552,41 @@ class SessionDetailViewModel(
     fun setEffort(level: String) {
         viewModelScope.launch { prefs.setEffortLevel(level) }
         _uiState.value = _uiState.value.copy(effortLevel = level, effortUnsupported = false)
+    }
+
+    /**
+     * 「派生会话」（任务 540）：POST /spawn-child-session 从当前会话派生子会话。
+     * 成功后重拉会话列表找到子会话并回调 onSpawned（导航切过去）；
+     * 列表尚未刷新找不到时也回调 null 提示文案（会话保留在列表，可手动进入）。
+     * 派生源是回合运行中时 serve 回 409，与 /new 的忙碌语义一致。
+     */
+    fun spawnChildSession(onSpawned: (RemoteSession?) -> Unit) {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(spawnChildBusy = true)
+            val result = repository.spawnChildSession(profile)
+            _uiState.value = _uiState.value.copy(spawnChildBusy = false)
+            result.fold(
+                onSuccess = { child ->
+                    // 重拉列表取子会话的标题/turns 等（serve 已落盘，列表立即可见）
+                    val created = repository.listSessions(profile).getOrNull()
+                        ?.firstOrNull { it.path == child.path }
+                    if (created != null) {
+                        onSpawned(created)
+                    } else {
+                        onSpawned(null)
+                    }
+                },
+                onFailure = { e ->
+                    val msg = e.message ?: "未知错误"
+                    _uiState.value = _uiState.value.copy(
+                        statusText = when {
+                            msg.contains("409") || msg.contains("running") -> "当前回合运行中，结束后再派生"
+                            else -> "派生失败：$msg"
+                        },
+                    )
+                },
+            )
+        }
     }
 
     /** 审批回复（allow/session/persist 语义对应 serve /approve） */

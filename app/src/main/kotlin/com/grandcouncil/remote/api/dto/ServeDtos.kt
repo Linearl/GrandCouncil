@@ -142,3 +142,18 @@ data class ModelEntryDto(
     val active: Boolean = false,
     val default: Boolean = false,
 )
+
+/** GET /capabilities 响应（任务 540：实验能力经此下发；老 serve 无新字段也能解析） */
+@Serializable
+data class CapabilitiesDto(
+    val protocol: Int = 0,
+    val minProtocol: Int = 0,
+    val capabilities: List<String> = emptyList(),
+)
+
+/** POST /spawn-child-session 响应（任务 540：path=子会话新文件，source=派生源） */
+@Serializable
+data class ChildSessionDto(
+    val path: String = "",
+    val source: String = "",
+)

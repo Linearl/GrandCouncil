@@ -1,5 +1,7 @@
 package com.grandcouncil.remote.api
 
+import com.grandcouncil.remote.api.dto.CapabilitiesDto
+import com.grandcouncil.remote.api.dto.ChildSessionDto
 import com.grandcouncil.remote.api.dto.HistoryMessageDto
 import com.grandcouncil.remote.api.dto.AttachmentRefDto
 import com.grandcouncil.remote.api.dto.ProjectEntryDto
@@ -113,6 +115,14 @@ interface ReasonixApi {
     /** GET /status — serve 状态握手（M1 连接测试第三层） */
     @GET("status")
     suspend fun getStatus(): StatusDto
+
+    /** GET /capabilities — 能力宣告（任务 540：含 "child-session" 时显示派生入口） */
+    @GET("capabilities")
+    suspend fun capabilities(): CapabilitiesDto
+
+    /** POST /spawn-child-session — 从当前会话派生子会话（任务 540，serve 实验开关开才存在；返回 {path, source}） */
+    @POST("spawn-child-session")
+    suspend fun spawnChildSession(@Body body: JsonObject = JsonObject(emptyMap())): ChildSessionDto
 
     /** POST /tool-approval-mode — 切换工具审批模式：ask | auto | yolo（PC 端三档） */
     @POST("tool-approval-mode")

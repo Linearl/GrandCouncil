@@ -137,6 +137,8 @@ fun SessionDetailScreen(
     session: RemoteSession?,
     modifier: Modifier = Modifier,
     onNewChat: () -> Unit = {},
+    /** 任务 540：派生成功后导航进子会话（null=列表尚未刷新，仅提示） */
+    onOpenSession: (RemoteSession?) -> Unit = {},
     viewModel: SessionDetailViewModel = viewModel(
         factory = SessionDetailViewModelFactory(
             profile = profile,
@@ -232,6 +234,26 @@ fun SessionDetailScreen(
                             enabled = !state.running,
                         ) {
                             Text("💬＋", style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
+                    // 右上角「派生会话」（任务 540）：从当前会话复制出子会话并切换过去，
+                    // 源会话保留可随时从列表切回。仅当 serve 能力宣告含 child-session
+                    // （experimental_gc_child_session 开）才出现——老 serve/开关关零入口。
+                    if (session != null && state.childSessionAvailable && !state.spawnChildBusy) {
+                        IconButton(
+                            onClick = {
+                                viewModel.spawnChildSession { created ->
+                                    if (created != null) {
+                                        Toast.makeText(context, "子会话已派生", Toast.LENGTH_SHORT).show()
+                                        onOpenSession(created)
+                                    } else {
+                                        Toast.makeText(context, "子会话已创建，可从会话列表进入", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            },
+                            enabled = !state.running,
+                        ) {
+                            Text("🌱", style = MaterialTheme.typography.bodyMedium)
                         }
                     }
                     // 右上角「查看用户输入」：切换用户输入预览（搜索/跳转，对标 rikkahub Chat Options）
