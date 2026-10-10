@@ -15,13 +15,16 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -32,6 +35,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -98,6 +102,8 @@ fun SessionDrawerContent(
 ) {
     val state by viewModel.uiState.collectAsState()
     var deviceMenuOpen by remember { mutableStateOf(false) }
+    // 任务 540 路线 B：新建会话 workspace 选择对话框（开关开时「＋ 新建」弹出；关=原路径）
+    var newSessionDialogOpen by remember { mutableStateOf(false) }
 
     // 打开抽屉/进入页面时刷新一次；刷新改为手动触发（按钮），不再自动定时刷新消耗资源
     LaunchedEffect(Unit) {
@@ -116,7 +122,14 @@ fun SessionDrawerContent(
                 deviceMenuOpen = false
                 viewModel.setDeviceFilter(it)
             },
-            onNewSession = { viewModel.newSession { profile -> onNewSessionCreated(profile) } },
+            onNewSession = {
+                if (state.experimentalNewSession) {
+                    // 任务 540 路线 B：zcode 同款——先选设备与 workspace 再创建
+                    newSessionDialogOpen = true
+                } else {
+                    viewModel.newSession { profile -> onNewSessionCreated(profile) }
+                }
+            },
             refreshing = state.refreshing,
             onRefresh = { viewModel.forceReload() },
         )
@@ -202,6 +215,19 @@ fun SessionDrawerContent(
                 Text("🧭 向导")
             }
         }
+    }
+
+    // 任务 540 路线 B：新建会话对话框（zcode 同款「新建会话 + workspace 选择」）。
+    // 定位到新会话 → onSelectSession 直接进入（关抽屉+记录浏览位置）；
+    // 未定位（列表刷新滞后）→ onNewSessionCreated 草稿兜底（会话已建成）。
+    if (newSessionDialogOpen) {
+        NewSessionDialog(
+            state = state,
+            viewModel = viewModel,
+            onDismiss = { newSessionDialogOpen = false },
+            onOpened = onSelectSession,
+            onDraft = onNewSessionCreated,
+        )
     }
 }
 
@@ -301,6 +327,177 @@ private fun DeviceSelector(
                 )
             }
         }
+    }
+}
+
+/**
+ * 任务 540 路线 B：新建会话对话框（zcode 同款「新建会话 + workspace 选择」）。
+ * 设备（多连接时 FilterChip 行）→ workspace 列表（网关 /manifest 项目；排除虚拟
+ * Global——网关只内联其 sessions/history，POST /new 回 501）+「默认工作区」
+ * （profile 自带路由，直连即 serve 自身）。创建成功：定位到新会话 → onOpened
+ * 直接进入；未定位（列表刷新滞后）→ onDraft 草稿兜底；失败对话框内提示可重试。
+ */
+@Composable
+private fun NewSessionDialog(
+    state: SessionListUiState,
+    viewModel: SessionListViewModel,
+    onDismiss: () -> Unit,
+    onOpened: (AggregatedSession) -> Unit,
+    onDraft: (ConnectionProfile) -> Unit,
+) {
+    // 目标设备：设备筛选优先，否则第一个连接（与既有「＋ 新建」一致）
+    var profileId by remember {
+        mutableStateOf(
+            state.deviceFilter?.takeIf { id -> state.profiles.any { it.id == id } }
+                ?: state.profiles.firstOrNull()?.id,
+        )
+    }
+    val profile = state.profiles.firstOrNull { it.id == profileId }
+    // workspace 候选：网关 /manifest 项目（排除虚拟 Global：无 serve 进程，POST /new 网关回 501）
+    val projects = state.projectsByProfile[profileId].orEmpty()
+        .filter { it.id != "global" && it.root != "Global" }
+    // 选中 workspace（值=projectId；null=不经项目前缀的「默认工作区」）。
+    // 初值：profile 自带 projectId；未配置且网关有项目 → 预选第一个项目。
+    var selectedProjectId by remember(profileId) {
+        mutableStateOf(profile?.projectId ?: projects.firstOrNull()?.id)
+    }
+    var busy by remember { mutableStateOf(false) }
+    var errorText by remember { mutableStateOf<String?>(null) }
+
+    AlertDialog(
+        onDismissRequest = { if (!busy) onDismiss() },
+        title = { Text("新建会话") },
+        text = {
+            Column {
+                if (state.profiles.size > 1) {
+                    Text(
+                        "设备",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.padding(top = 4.dp),
+                    ) {
+                        items(state.profiles, key = { it.id }) { p ->
+                            FilterChip(
+                                selected = p.id == profileId,
+                                onClick = { profileId = p.id },
+                                label = {
+                                    Text(
+                                        if (p.id in state.serveInfoByProfile.keys) "● ${p.name}"
+                                        else p.name,
+                                    )
+                                },
+                            )
+                        }
+                    }
+                }
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    "Workspace",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                // 「默认工作区」= profile 自带 projectId 路由（直连即 serve 自身工作区）
+                WorkspaceRow(
+                    label = "默认工作区",
+                    dotColor = projectColor(""),
+                    selected = selectedProjectId == profile?.projectId,
+                    onClick = { selectedProjectId = profile?.projectId },
+                )
+                projects.forEach { project ->
+                    WorkspaceRow(
+                        label = project.name.ifBlank { project.id },
+                        dotColor = projectColor(project.color),
+                        selected = selectedProjectId == project.id,
+                        onClick = { selectedProjectId = project.id },
+                    )
+                }
+                if (errorText != null) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        errorText!!,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            if (busy) {
+                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+            } else {
+                TextButton(
+                    enabled = profile != null,
+                    onClick = {
+                        val p = profile ?: return@TextButton
+                        errorText = null
+                        busy = true
+                        viewModel.createSessionInWorkspace(p, selectedProjectId) { result ->
+                            busy = false
+                            result.fold(
+                                onSuccess = { created ->
+                                    onDismiss()
+                                    if (created != null) {
+                                        onOpened(created)
+                                    } else {
+                                        // 未定位到（列表刷新滞后）：落草稿，会话稍后在列表可见
+                                        onDraft(p.copy(projectId = selectedProjectId))
+                                    }
+                                },
+                                onFailure = { e -> errorText = newSessionErrorText(e) },
+                            )
+                        }
+                    },
+                ) { Text("创建") }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !busy) { Text("取消") }
+        },
+    )
+}
+
+/** 新建失败文案（区分忙/路由缺失/虚拟区，其余原样透出） */
+private fun newSessionErrorText(e: Throwable): String {
+    val msg = e.message ?: "未知错误"
+    return when {
+        msg.contains("409") -> "服务正忙（回合运行中），请稍后再试"
+        msg.contains("501") -> "该 workspace 不支持新建（只读虚拟区）"
+        msg.contains("404") -> "该 workspace 路由不存在（网关未含此项目或旧版网关）"
+        else -> "新建失败：$msg"
+    }
+}
+
+/** workspace 单行（色点 + 名称 + 单选指示；对话框内用） */
+@Composable
+private fun WorkspaceRow(
+    label: String,
+    dotColor: Color,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .selectable(selected = selected, onClick = onClick)
+            .padding(horizontal = 4.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(10.dp).background(dotColor, CircleShape))
+        Text(
+            label,
+            style = MaterialTheme.typography.bodyLarge,
+            modifier = Modifier.padding(start = 8.dp).weight(1f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            if (selected) "●" else "○",
+            color = if (selected) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.outline,
+        )
     }
 }
 

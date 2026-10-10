@@ -236,7 +236,7 @@ class SessionListViewModel(
                 listed?.firstOrNull {
                     it.path == path || it.id == path.substringAfterLast('/').removeSuffix(".jsonl")
                 }
-            }
+            }?.let { AggregatedSession(it, target, projectId = projectId) }
             onDone(Result.success(located))
         }
     }
