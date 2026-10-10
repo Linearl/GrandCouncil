@@ -52,7 +52,7 @@ import kotlinx.coroutines.launch
  * 1. 选连接方式（LAN/节点小宝/花生壳/Tailscale/frp/自定义）
  * 2. 填 Base URL + 认证方式
  * 3. 宿主侧启动命令（可复制）+ token/密码
- * 4. 三层诊断测试 → 通过后保存
+ * 4. 连接诊断测试（四层诊断 + 能力探测）→ 通过后保存
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -347,10 +347,16 @@ private fun StepTest(
         }
     }
     results.forEach { result ->
+        // 任务 7：warn=连接可用但能力受限（旧 serve/能力探测未完成），警示色与纯通过区分
+        val mark = if (result.success) if (result.warn) "△" else "✓" else "✗"
+        val color = when {
+            !result.success -> MaterialTheme.colorScheme.error
+            result.warn -> MaterialTheme.colorScheme.tertiary
+            else -> MaterialTheme.colorScheme.primary
+        }
         Text(
-            "${if (result.success) "✓" else "✗"} ${result.step.title}：${result.message}",
-            color = if (result.success) MaterialTheme.colorScheme.primary
-            else MaterialTheme.colorScheme.error,
+            "$mark ${result.step.title}：${result.message}",
+            color = color,
             modifier = Modifier.padding(top = 8.dp),
             textAlign = TextAlign.Start,
         )

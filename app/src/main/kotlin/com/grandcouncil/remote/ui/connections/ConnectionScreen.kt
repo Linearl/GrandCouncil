@@ -52,7 +52,7 @@ import com.grandcouncil.remote.connection.ConnectionTester
 import kotlinx.coroutines.launch
 
 /**
- * 连接管理（M1 验收：增/删/改 + 三层诊断测试）。
+ * 连接管理（M1 验收：增/删/改 + 连接诊断测试；任务 7 起含 /capabilities 能力探测层）。
  * embedded=true 时由外层（ConfigScreen）提供 Scaffold 顶栏，本组件只渲染内容。
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -168,11 +168,17 @@ private fun ProfileItem(
                 }
             }
             results.forEach { result ->
+                // 任务 7：warn=连接可用但能力受限（旧 serve/能力探测未完成），警示色与纯通过区分
+                val mark = if (result.success) if (result.warn) "△" else "✓" else "✗"
+                val color = when {
+                    !result.success -> MaterialTheme.colorScheme.error
+                    result.warn -> MaterialTheme.colorScheme.tertiary
+                    else -> MaterialTheme.colorScheme.primary
+                }
                 Text(
-                    "${if (result.success) "✓" else "✗"} ${result.step.title}：${result.message}",
+                    "$mark ${result.step.title}：${result.message}",
                     style = MaterialTheme.typography.bodySmall,
-                    color = if (result.success) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.error,
+                    color = color,
                 )
             }
             // 连接失败提示：电脑端按需启动对应项目 serve（懒加载闭环）

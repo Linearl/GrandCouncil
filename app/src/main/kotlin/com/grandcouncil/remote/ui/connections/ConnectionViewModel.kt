@@ -102,7 +102,7 @@ class ConnectionViewModel(
         }
     }
 
-    /** 三层诊断测试（网络可达 → 认证 → 协议握手），逐层回传结果 */
+    /** 连接诊断（网络可达 → 认证 → 协议握手 → 能力探测），逐层回传结果 */
     fun testProfile(profile: ConnectionProfile) {
         if (profile.id in _uiState.value.testingIds) return
         _uiState.value = _uiState.value.copy(
