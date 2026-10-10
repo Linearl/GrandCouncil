@@ -60,6 +60,8 @@ fun SettingsScreen(onBack: () -> Unit) {
     var amoledDark by remember { mutableStateOf(false) }
     var dynamicColor by remember { mutableStateOf(false) }
     var autoScroll by remember { mutableStateOf(true) }
+    // 任务 540 路线 B：新建会话选择 workspace（实验，默认关）
+    var experimentalNewSession by remember { mutableStateOf(false) }
     // 联网注入文本编辑（文档 §2.2）
     var webSearchPrompt by remember { mutableStateOf(AppPreferences.DEFAULT_WEB_SEARCH_PROMPT) }
     var webPromptEditOpen by remember { mutableStateOf(false) }
@@ -73,6 +75,7 @@ fun SettingsScreen(onBack: () -> Unit) {
         prefs.dynamicColor.collect { dynamicColor = it }
         prefs.autoScroll.collect { autoScroll = it }
         prefs.webSearchPrompt.collect { webSearchPrompt = it }
+        prefs.experimentalGcNewSession.collect { experimentalNewSession = it }
     }
 
     Scaffold(
@@ -294,6 +297,32 @@ fun SettingsScreen(onBack: () -> Unit) {
                     onCheckedChange = { on ->
                         biometricLock = on
                         scope.launch { prefs.setBiometricLock(on) }
+                    },
+                )
+            }
+            HorizontalDivider(Modifier.padding(vertical = 12.dp))
+            SectionTitle("实验特性")
+            // 任务 540 路线 B：新建会话时选择 workspace（zcode 同款；默认关=「＋ 新建」原行为）
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("新建会话选择 workspace", style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        if (experimentalNewSession) "「＋ 新建」先选设备与 workspace 再创建，创建后直接进入"
+                        else "默认关闭：「＋ 新建」保持原行为（在当前设备直接创建）",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = experimentalNewSession,
+                    onCheckedChange = { on ->
+                        experimentalNewSession = on
+                        scope.launch { prefs.setExperimentalGcNewSession(on) }
                     },
                 )
             }
