@@ -172,12 +172,19 @@ class SessionRepository {
             }.map { }
         }
 
-    /** 新建会话（POST /new，204） */
-    suspend fun newSession(profile: ConnectionProfile): Result<Unit> =
+    /**
+     * 新建会话（POST /new，204）。任务 540 路线 B：返回 Result<String?>，
+     * 成功值为响应头 X-Reasonix-Session-Path（新会话文件绝对路径，serve 各旋转路径
+     * 均回填；缺失时为 null，调用方按「已建但未定位」降级）。workspace 归属由
+     * profile.projectId 路由决定——网关场景传 profile.copy(projectId = 选中项目)
+     * 即在目标项目建会话（/p/<id>/ 全方法透传，无需 serve 新端点）。
+     */
+    suspend fun newSession(profile: ConnectionProfile): Result<String?> =
         withContext(Dispatchers.IO) {
             runCatching {
-                HttpClientFactory.createApi(profile).newSession()
-            }.map { }
+                val response = HttpClientFactory.createApi(profile).newSession()
+                response.headers()["X-Reasonix-Session-Path"]
+            }
         }
 
     /** GET /capabilities — 能力宣告（任务 540：失败按空能力处理，入口静默隐藏） */

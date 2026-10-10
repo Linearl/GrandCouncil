@@ -47,9 +47,13 @@ interface ReasonixApi {
 
     /** GET /sessions/{id} — Web UI 页面（原生 App 用 /history，见下） */
 
-    /** POST /new — 新建会话（返回 204 无 body；空 body 确保 application/json Content-Type，serve CSRF 守卫要求） */
+    /**
+     * POST /new — 新建会话（204 无 body；空 body 确保 application/json Content-Type，serve CSRF 守卫要求）。
+     * 任务 540 路线 B：响应头 X-Reasonix-Session-Path 携带新会话文件路径，
+     * 供创建后定位导航（走 Response 拿头，同 /effort 的 submitRaw 模式）。
+     */
     @POST("new")
-    suspend fun newSession(@Body body: JsonObject = JsonObject(emptyMap())): Unit
+    suspend fun newSession(@Body body: JsonObject = JsonObject(emptyMap())): retrofit2.Response<Unit>
 
     /** POST /delete-session — 删除会话（M2，需确认弹窗） */
     @POST("delete-session")
