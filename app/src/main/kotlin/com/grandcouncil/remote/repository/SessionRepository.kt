@@ -3,6 +3,7 @@ package com.grandcouncil.remote.repository
 import com.grandcouncil.remote.agent.AgentAdapterFactory
 import com.grandcouncil.remote.api.HttpClientFactory
 import com.grandcouncil.remote.api.dto.ChildSessionDto
+import com.grandcouncil.remote.api.dto.CapabilitiesDto
 import com.grandcouncil.remote.api.dto.ModelEntryDto
 import com.grandcouncil.remote.api.dto.ProjectEntryDto
 import com.grandcouncil.remote.api.dto.StatusDto
@@ -180,11 +181,19 @@ class SessionRepository {
             }.map { }
         }
 
-    /** GET /capabilities — 能力宣告（任务 540：失败按空能力处理，入口静默隐藏） */
+    /** GET /capabilities — 能力宣告清单（任务 540：失败按空能力处理，入口静默隐藏） */
     suspend fun capabilities(profile: ConnectionProfile): Result<List<String>> =
+        capabilitiesDetail(profile).map { it.capabilities }
+
+    /**
+     * GET /capabilities — 完整响应（任务 7 连接前探测：含 protocol/minProtocol，
+     * 供连接测试层做协议兼容判定；能力清单语义同上）。
+     * 失败原样上抛（404=旧 serve 无此路由），由调用方决定降级方式。
+     */
+    suspend fun capabilitiesDetail(profile: ConnectionProfile): Result<CapabilitiesDto> =
         withContext(Dispatchers.IO) {
             runCatching {
-                HttpClientFactory.createApi(profile).capabilities().capabilities
+                HttpClientFactory.createApi(profile).capabilities()
             }
         }
 
