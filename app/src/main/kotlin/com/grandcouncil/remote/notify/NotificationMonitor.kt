@@ -4,6 +4,7 @@ import android.content.Context
 import com.grandcouncil.remote.api.SseClient
 import com.grandcouncil.remote.connection.ConnectionProfile
 import com.grandcouncil.remote.connection.ConnectionStore
+import com.grandcouncil.remote.repository.LeasePolicy
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -51,7 +52,8 @@ object NotificationMonitor {
     private suspend fun watchProfile(context: Context, profile: ConnectionProfile) {
         val client = SseClient.forProfile(profile)
         var attempts = 0
-        while (attempts < 3) { // 后台监听最多重连 3 次，避免无限耗电
+        // 702 A②：尝试上限与退避节奏收口 LeasePolicy（5s*n，最多 3 次，避免无限耗电）
+        while (attempts < LeasePolicy.MAX_RECONNECT_ATTEMPTS) {
             try {
                 client.events(SseClient.eventsUrl(profile)).collect { ev ->
                     attempts = 0
@@ -59,7 +61,7 @@ object NotificationMonitor {
                 }
             } catch (t: Throwable) {
                 attempts++
-                if (attempts >= 3) {
+                if (attempts >= LeasePolicy.MAX_RECONNECT_ATTEMPTS) {
                     AppNotifications.notify(
                         context,
                         NotifyType.CONNECTION,
@@ -68,7 +70,7 @@ object NotificationMonitor {
                         dedupeKey = "conn-${profile.id}",
                     )
                 }
-                delay(5_000L * attempts)
+                delay(LeasePolicy.reconnectBackoffMs(attempts))
             }
         }
     }

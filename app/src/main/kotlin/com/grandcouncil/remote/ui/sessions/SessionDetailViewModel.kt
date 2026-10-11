@@ -15,6 +15,7 @@ import com.grandcouncil.remote.model.Role
 import com.grandcouncil.remote.ui.AppPreferences
 import com.grandcouncil.remote.model.ToolCall
 import com.grandcouncil.remote.model.ToolCallStatus
+import com.grandcouncil.remote.repository.LeasePolicy
 import com.grandcouncil.remote.repository.SessionRepository
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -187,21 +188,23 @@ class SessionDetailViewModel(
                 repository.releaseOwnership(profile, profile.projectId, s.id)
             }
         }
-        // 任务 36 Phase 2：onStop 立即释放整个设备租约（不等 serve 90s 过期）——
-        // 本端离开后桌面端马上恢复可写。失败静默：serve 端仍有过期兜底。
+        // 任务 36 Phase 2 / 702 A②：离开会话详情页（VM 销毁）立即释放整个设备租约——
+        // 注意本回调是 onCleared（导航退出/Activity 销毁）而非 onStop：仅切后台时 VM 存活、
+        // 心跳协程继续跑，接管链不断（行为矩阵见 repository/LeasePolicy.kt）。
+        // 失败静默：serve 端 90s TTL 仍有过期兜底。
         kotlinx.coroutines.GlobalScope.launch {
             repository.releaseDeviceLease(profile, profile.projectId)
         }
         super.onCleared()
     }
 
-    /** 15s 设备租约心跳（任务 36 Phase 2：30s → 15s，90s 无心跳 → serve 释放整个设备租约） */
+    /** 设备租约心跳（间隔见 LeasePolicy.HEARTBEAT_INTERVAL_MS；90s 无心跳 → serve 释放整个设备租约） */
     fun startHeartbeat() {
         val s = session ?: return
         viewModelScope.launch {
             while (isActive) {
                 repository.heartbeat(profile, profile.projectId, s.id)
-                delay(15_000)
+                delay(LeasePolicy.HEARTBEAT_INTERVAL_MS)
             }
         }
     }
