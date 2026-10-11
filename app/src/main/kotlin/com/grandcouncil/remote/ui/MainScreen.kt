@@ -61,16 +61,24 @@ enum class MainSection { CHAT, CONFIG, WIZARD, DEMO }
 /**
  * 主界面（rikkahub 式布局）：左上汉堡 → 抽屉会话栏（默认折叠）；
  * 会话栏底部为「配置」「向导」入口；主区常驻聊天（选中会话后直接展示）。
+ *
+ * 任务 702 B⑤：[initialShareText] 非空时（系统分享 ACTION_SEND 进入）自动新建草稿会话
+ * 并预填输入框；无可用连接时丢弃文本走空态引导；消费完回调 [onShareConsumed]。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainScreen() {
+fun MainScreen(
+    initialShareText: String? = null,
+    onShareConsumed: () -> Unit = {},
+) {
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     var section by remember { mutableStateOf(MainSection.CHAT) }
     var selectedSession by remember { mutableStateOf<AggregatedSession?>(null) }
     // 草稿聊天（新建会话后进入空白聊天，session=null）
     var draftProfile by remember { mutableStateOf<ConnectionProfile?>(null) }
+    // 任务 702 B⑤：分享预填文本（随草稿传入详情页输入框，一次性消费）
+    var draftInitialInput by remember { mutableStateOf<String?>(null) }
     val appContext = LocalContext.current.applicationContext
     val prefs = remember { AppPreferences(appContext) }
 
@@ -94,6 +102,21 @@ fun MainScreen() {
                 section = MainSection.CHAT
             }
         }
+    }
+
+    // 任务 702 B⑤：系统分享 → 新建草稿会话并预填（一次性；已有选中会话/草稿时只消费不覆盖）
+    LaunchedEffect(initialShareText) {
+        val text = initialShareText ?: return@LaunchedEffect
+        if (selectedSession == null && draftProfile == null) {
+            val profiles: List<ConnectionProfile> =
+                runCatching { ConnectionStore(appContext).profiles.first() }.getOrDefault(emptyList())
+            if (profiles.isNotEmpty()) {
+                draftProfile = profiles.first()
+                draftInitialInput = text
+                section = MainSection.CHAT
+            }
+        }
+        onShareConsumed()
     }
 
     // 浏览位置持久化：选中会话 / 新建草稿 / 退出会话
@@ -157,6 +180,8 @@ fun MainScreen() {
                             profile = draft,
                             session = null,
                             modifier = Modifier.padding(padding),
+                            // 任务 702 B⑤：分享文本预填（一次性，读取即消费防组合重复注入）
+                            initialInputText = draftInitialInput.also { if (it != null) draftInitialInput = null },
                         )
 
                         else -> ChatEmptyHint(
