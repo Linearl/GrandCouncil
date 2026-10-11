@@ -2,6 +2,9 @@
 <resources>
     <string name="app_name">GrandCouncil</string>
 
+    <!-- 任务 702 B④：桌面 Widget -->
+    <string name="widget_description">会话状态概览：设备 / 会话 / 运行中，点按打开</string>
+
     <!-- 底部导航 -->
     <string name="tab_sessions">会话</string>
     <string name="tab_connections">配置</string>
