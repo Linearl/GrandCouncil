@@ -65,6 +65,9 @@ android {
 // 无需单独设置 kotlin.compilerOptions
 
 dependencies {
+    // 702：JVM 单元测试（纯逻辑测试，无 Android 依赖）
+    testImplementation(libs.junit)
+
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
