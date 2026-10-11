@@ -19,6 +19,15 @@ object BiometricLock {
                 BiometricManager.Authenticators.DEVICE_CREDENTIAL,
         ) == BiometricManager.BIOMETRIC_SUCCESS
 
+    /**
+     * 任务 702 A③：是否应置锁（纯函数，可 JVM 单测）。
+     * 开关开 + 设备可用 + 本会话（进程存活期）尚未通过验证。
+     * 修复原缺陷：冷启动时 lockState 初始 false，原「lockState.value 为真才置锁」
+     * 条件恒假 → 开关开着冷启动也不锁。现在开关一旦确认为开即置锁。
+     */
+    fun shouldLock(enabled: Boolean, available: Boolean, sessionUnlocked: Boolean): Boolean =
+        enabled && available && !sessionUnlocked
+
     /** 弹出系统生物识别验证；成功后回调 onSuccess */
     fun authenticate(
         activity: FragmentActivity,

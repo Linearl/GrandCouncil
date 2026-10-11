@@ -15,6 +15,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -41,6 +42,11 @@ class MainActivity : FragmentActivity() {
     private val lockState = MutableStateFlow(false)
     @Volatile
     private var biometricEnabled = false
+
+    // 任务 702 A③：本会话（进程存活期）是否已通过验证——
+    // 守住「开关确认开 → 置锁」不与「已解锁」互相打架；onStop 时复位强制重验
+    @Volatile
+    private var sessionUnlocked = false
 
     private var debugApiServer: DebugApiServer? = null
 
@@ -74,7 +80,9 @@ class MainActivity : FragmentActivity() {
             androidx.compose.runtime.LaunchedEffect(Unit) {
                 prefs.biometricLock.collect { enabled ->
                     biometricEnabled = enabled
-                    if (enabled && BiometricLock.isAvailable(context) && lockState.value) {
+                    // 任务 702 A③ 修复：原条件 `lockState.value` 在冷启动时恒为 false，
+                    // 导致「开关开着 → 冷启动不锁」。改为 shouldLock 统一判定。
+                    if (BiometricLock.shouldLock(enabled, BiometricLock.isAvailable(context), sessionUnlocked)) {
                         lockState.value = true
                     }
                 }
@@ -87,11 +95,16 @@ class MainActivity : FragmentActivity() {
             ) {
                 if (locked) {
                     LockScreen(
+                        // 任务 702 A③：锁屏出现即自动弹一次系统验证（指纹/面容/密码三选一，
+                        // 由 BiometricPrompt 的组合 authenticator 决定），失败/取消可手动再弹
                         onUnlock = {
                             BiometricLock.authenticate(
                                 this@MainActivity,
                                 "解锁 GrandCouncil",
-                                onSuccess = { lockState.value = false },
+                                onSuccess = {
+                                    sessionUnlocked = true
+                                    lockState.value = false
+                                },
                                 onFailed = {},
                             )
                         },
@@ -112,16 +125,27 @@ class MainActivity : FragmentActivity() {
     override fun onStop() {
         super.onStop()
         NotificationMonitor.start(applicationContext)
-        // A4 进后台重新上锁（开关开启时）
+        // A4 进后台重新上锁（开关开启时）；702 A③：并复位会话解锁标志——回前台必须重验
         if (biometricEnabled && BiometricLock.isAvailable(this)) {
             lockState.value = true
+            sessionUnlocked = false
         }
     }
 }
 
-/** A4 锁屏覆盖：全屏遮罩 + 解锁按钮 */
+/** A4 锁屏覆盖：全屏遮罩 + 自动弹一次验证 + 手动解锁按钮兜底 */
 @Composable
 private fun LockScreen(onUnlock: () -> Unit) {
+    // 任务 702 A③：自动弹只发一次（验证取消/失败后停在锁屏，由按钮手动再弹）。
+    // delay 缓冲等 Activity resumed——BiometricPrompt 在非 resumed 态弹会直接报错。
+    var autoPrompted by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        if (!autoPrompted) {
+            autoPrompted = true
+            kotlinx.coroutines.delay(400)
+            onUnlock()
+        }
+    }
     Box(
         Modifier
             .fillMaxSize()
