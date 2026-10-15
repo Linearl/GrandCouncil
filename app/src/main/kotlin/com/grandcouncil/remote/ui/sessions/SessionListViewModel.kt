@@ -132,6 +132,27 @@ data class SessionListUiState(
                 }
             }
         }
+
+    /**
+     * 搜索模式下项目名匹配的项目（任务 537 返修：项目层参与过滤——用户 1015 要求
+     * 「项目名也应能被搜到」）。与 searchResults 同遵守设备筛选；数据来自 /manifest
+     * （项目列表全量在手，无需补拉）。
+     */
+    val matchedProjects: List<Pair<ConnectionProfile, ProjectEntryDto>>
+        get() {
+            val query = searchQuery.trim()
+            if (query.isEmpty()) return emptyList()
+            val visibleProfiles = if (deviceFilter == null) profiles
+            else profiles.filter { it.id == deviceFilter }
+            return visibleProfiles.flatMap { profile ->
+                (projectsByProfile[profile.id] ?: emptyList())
+                    .filter {
+                        it.name.contains(query, ignoreCase = true) ||
+                            it.id.contains(query, ignoreCase = true)
+                    }
+                    .map { profile to it }
+            }
+        }
 }
 
 class SessionListViewModel(
@@ -193,6 +214,12 @@ class SessionListViewModel(
         searchInput.value = query
         _uiState.value = _uiState.value.copy(searchQuery = query.trim())
         if (query.isNotBlank()) loadAllProjectSessionsForSearch()
+    }
+
+    /** 清除搜索（任务 537 返修：清除按钮/点匹配项目返回树视图时调用），恢复全量列表 */
+    fun clearSearch() {
+        searchInput.value = ""
+        _uiState.value = _uiState.value.copy(searchQuery = "", searchLoading = false)
     }
 
     // 搜索 200ms 防抖（S4）：输入停止后过滤生效，避免每次按键全量过滤

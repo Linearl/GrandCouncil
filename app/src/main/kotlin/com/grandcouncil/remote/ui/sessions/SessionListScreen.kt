@@ -28,9 +28,11 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -121,7 +123,8 @@ fun SessionDrawerContent(
             onRefresh = { viewModel.forceReload() },
         )
         // 搜索框（A2；本地即时显示 + VM 200ms 防抖过滤）。
-        // 任务 537：输入即搜（防抖生效）+ 软键盘回车立即提交（IME_ACTION_SEARCH）。
+        // 任务 537 返修（1015 打回）：补显式触发/清除按钮（用户要求「加一个按键」）
+        // + IME 回车；项目名与项目下会话均参与过滤（placeholder 语义同步）。
         val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
         var localQuery by remember { mutableStateOf(state.searchQuery) }
         androidx.compose.material3.OutlinedTextField(
@@ -130,8 +133,26 @@ fun SessionDrawerContent(
                 localQuery = it
                 viewModel.setSearchQuery(it)
             },
-            placeholder = { Text("搜索会话…") },
+            placeholder = { Text("搜索项目和会话…") },
             singleLine = true,
+            trailingIcon = {
+                Row {
+                    if (localQuery.isNotEmpty()) {
+                        IconButton(onClick = {
+                            localQuery = ""
+                            viewModel.clearSearch()
+                        }) {
+                            Icon(Icons.Filled.Clear, contentDescription = "清除搜索")
+                        }
+                    }
+                    IconButton(onClick = {
+                        viewModel.commitSearch(localQuery)
+                        keyboard?.hide()
+                    }) {
+                        Icon(Icons.Filled.Search, contentDescription = "搜索")
+                    }
+                }
+            },
             keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                 imeAction = androidx.compose.ui.text.input.ImeAction.Search,
             ),
@@ -184,14 +205,21 @@ fun SessionDrawerContent(
 
                 else -> {
                     if (state.searchQuery.isNotBlank()) {
-                        // 任务 537：搜索模式——跨项目扁平结果（标题过滤），
+                        // 任务 537 返修：搜索模式——跨项目扁平结果（会话标题过滤）
+                        // + 项目名匹配的项目段（项目层参与过滤）；
                         // 无匹配明确提示（区别于「没在搜」）
                         SearchResultsList(
                             results = state.searchResults,
+                            matchedProjects = state.matchedProjects,
                             loading = state.searchLoading,
                             density = state.density,
                             favorites = state.favorites,
                             onOpen = onSelectSession,
+                            onOpenProject = { profileId, projectId ->
+                                // 点匹配项目：清搜索回到项目树视图并展开该项目
+                                viewModel.clearSearch()
+                                viewModel.loadProjectSessions(profileId, projectId)
+                            },
                             onDelete = { viewModel.deleteSession(it) },
                             onToggleFavorite = { viewModel.toggleFavorite(it) },
                         )
@@ -345,45 +373,95 @@ private fun FilterRow(current: SessionFilter, onSelect: (SessionFilter) -> Unit)
     }
 }
 
-/** 搜索结果扁平列表（任务 537）：标题匹配的会话跨项目罗列（showDevice 区分多设备）；
- *  无匹配明确提示「无匹配会话」，加载中显示转圈——不再让用户误读「没搜到 vs 没在搜」。 */
+/** 搜索结果列表（任务 537 返修）：会话标题匹配（跨项目扁平罗列，showDevice 区分多设备）
+ *  + 项目名匹配的项目段（项目层参与过滤；点击=清搜索并展开该项目）。
+ *  两者皆空明确提示「无匹配项目和会话」；加载中显示转圈——不再让用户误读「没搜到 vs 没在搜」。 */
 @Composable
 private fun SearchResultsList(
     results: List<AggregatedSession>,
+    matchedProjects: List<Pair<ConnectionProfile, ProjectEntryDto>>,
     loading: Boolean,
     density: DensityPreset,
     favorites: Set<String>,
     onOpen: (AggregatedSession) -> Unit,
+    onOpenProject: (profileId: String, projectId: String) -> Unit,
     onDelete: (AggregatedSession) -> Unit,
     onToggleFavorite: (AggregatedSession) -> Unit,
 ) {
     when {
-        loading && results.isEmpty() ->
+        loading && results.isEmpty() && matchedProjects.isEmpty() ->
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
             }
-        results.isEmpty() ->
+        results.isEmpty() && matchedProjects.isEmpty() ->
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
-                    "无匹配会话",
+                    "无匹配项目和会话",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         else -> LazyColumn(Modifier.fillMaxSize()) {
-            items(
-                results,
-                key = { "${it.profile.id}:${it.session.id}" },
-            ) { item ->
-                SessionItem(
-                    item = item,
-                    density = density,
-                    showDevice = true,
-                    isFavorite = "${item.profile.id}:${item.session.id}" in favorites,
-                    onClick = { onOpen(item) },
-                    onDelete = { onDelete(item) },
-                    onToggleFavorite = { onToggleFavorite(item) },
-                )
+            if (matchedProjects.isNotEmpty()) {
+                item(key = "srch-proj-header") {
+                    Text(
+                        "匹配项目",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    )
+                }
+                matchedProjects.forEach { (profile, project) ->
+                    item(key = "srch-proj-${profile.id}:${project.id}") {
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable { onOpenProject(profile.id, project.id) }
+                                .padding(horizontal = 16.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Box(
+                                Modifier.size(10.dp)
+                                    .background(projectColor(project.color), CircleShape)
+                            )
+                            Text(
+                                project.name.ifBlank { project.id },
+                                style = MaterialTheme.typography.bodyLarge,
+                                modifier = Modifier.padding(start = 8.dp).weight(1f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                "▸",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            }
+            if (results.isNotEmpty()) {
+                item(key = "srch-sess-header") {
+                    Text(
+                        "匹配会话",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    )
+                }
+                items(
+                    results,
+                    key = { "${it.profile.id}:${it.session.id}" },
+                ) { item ->
+                    SessionItem(
+                        item = item,
+                        density = density,
+                        showDevice = true,
+                        isFavorite = "${item.profile.id}:${item.session.id}" in favorites,
+                        onClick = { onOpen(item) },
+                        onDelete = { onDelete(item) },
+                        onToggleFavorite = { onToggleFavorite(item) },
+                    )
+                }
             }
         }
     }
