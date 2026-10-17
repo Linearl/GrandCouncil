@@ -15,7 +15,7 @@
 | `gradle.properties` | Gradle 配置（JVM 参数、AndroidX 等） |
 | `gradle/libs.versions.toml` | 版本目录：2026-08 稳定依赖组合（compose BOM、retrofit/okhttp、serialization 等） |
 | `README.md` | 项目简介、构建、安装与局域网联调说明 |
-| `LICENSE` | Apache License 2.0 |
+| `LICENSE` | GNU AGPL-3.0（自 2026-10-17 起；此前版本为 Apache License 2.0，见 `NOTICE` 与 README 许可证节） |
 | `gradlew` / `gradlew.bat` | Gradle wrapper（Gradle 9.5.0） |
 
 ## Subdirectories

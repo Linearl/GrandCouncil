@@ -4,6 +4,8 @@
 
 在手机上远程连接 Reasonix serve，查看和使用远端会话。
 
+**不提供本地推理 / 本地聊天**——必须接入 Reasonix serve 远端才能使用（2026-10-06 用户战略定案）。
+
 ## 功能特性
 
 - 多远端连接配置：局域网 / 节点小宝 / 花生壳 / Tailscale / frp / 自定义
@@ -44,11 +46,15 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 ## 许可证
 
-[Apache License 2.0](LICENSE)
+本项目以 [GNU AGPL-3.0](LICENSE) 分发。**自 2026-10-17 起的版本变更为 AGPL-3.0**（因直接复用来自 RikkaHub 的 AGPL-3.0 代码）；此前发布的旧版本仍按 Apache License 2.0 授权，已发布版本的授权不可撤回。详见根目录 [NOTICE](NOTICE)。
 
-## 关于 RikkaHub 的 clean room 隔离说明
+## 关于 RikkaHub 代码复用的声明（AGPL-3.0）
 
-本项目起步阶段参考过 RikkaHub 的开源实现。为保证代码独立性与许可清洁，开发过程采用了 **clean room 隔离**：由一方阅读并提炼原项目的行为要点（以文档/需求形式输出），另一方在不接触原代码的前提下据此重新实现；本仓库中的全部代码均为独立编写，不包含 RikkaHub 的源代码或派生代码。
+本项目界面对标并**直接复用** [RikkaHub](https://github.com/rikkahub/rikkahub) 的部分开源代码模块（2026-10-17 用户拍板，不再采用早期起步阶段的净室隔离方式）。RikkaHub 以 AGPL-3.0 授权，因此本仓库整体随之变更为 AGPL-3.0 分发：
+
+- 来自 RikkaHub 的每个源文件在文件头保留原作者版权声明（AGPL-3.0 §5），并注明 `Portions from rikkahub/rikkahub (AGPL-3.0)`；
+- 来源与整体协议声明见根目录 `NOTICE`；
+- 依据 AGPL-3.0，任何基于本项目的再分发（含网络交互服务）须以 AGPL-3.0 开放相应源代码。
 
 ## 开发路线图（概览）
 
