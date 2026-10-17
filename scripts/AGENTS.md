@@ -14,6 +14,7 @@
 | `serve-manager.sh` | 多项目 serve 管理器：`list|status|start <项目名>|stop <项目名>|start-all`。端口从 8788 起按 desktop-projects.json 清单顺序分配；日志在 `../temp/serve-logs/` |
 | `dev-emulator.sh` | 一键联调：启动 reasonix serve（8787）→ 启动模拟器 → 验证宿主连通性 → 建测试会话 → 截图；模拟器访问宿主用 `10.0.2.2` |
 | `ui-auto.py` | 模拟器 UI 自动化：adb + uiautomator 添加连接(10.0.2.2:8787) → 测试连接 → 会话列表验证；依赖 dev-emulator.sh 已就绪的环境 |
+| `check-gc-boundary.py` | GC 定位边界防线（tl967）：C1-C4 四道扫描（provider SDK/凭据字段/provider 域名/本地推理运行时），命中非零退出；`--self-test` 反向测试必须全红；提交前人工跑 |
 
 ## Subdirectories
 
