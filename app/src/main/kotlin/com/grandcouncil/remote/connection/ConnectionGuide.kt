@@ -9,7 +9,13 @@ object ConnectionGuide {
     /** 电脑端通用第一步：通过桌面版设置面板开启远程网关 */
     const val SERVE_START = "电脑端开启远程网关：Reasonix → 设置 → 集成与连接 → 本地服务 → 启用远程网关（0.0.0.0:18789）"
 
-    fun stepsFor(type: ConnectionType): List<String> = when (type) {
+    fun stepsFor(type: ConnectionType?): List<String> = when (type) {
+        null -> listOf(
+            SERVE_START,
+            "直接填入你的 serve 地址（局域网 IP / 组网 IP / 隧道域名均可）——"
+                + "地址形态不限，保存后用「测试连接」验证；组网方式可在下方快捷填充中参考",
+        )
+
         ConnectionType.LAN -> listOf(
             SERVE_START,
             "手机与电脑连接同一 WiFi",

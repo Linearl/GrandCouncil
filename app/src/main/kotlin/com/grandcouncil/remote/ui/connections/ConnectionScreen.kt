@@ -1,8 +1,11 @@
 package com.grandcouncil.remote.ui.connections
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -15,6 +18,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -145,7 +149,7 @@ private fun ProfileItem(
                 Column(Modifier.weight(1f)) {
                     Text(profile.name, style = MaterialTheme.typography.titleMedium)
                     Text(
-                        "${profile.agentType.label} · ${profile.type.label} · ${profile.baseUrl}",
+                        "${profile.agentType.label} · ${profile.type?.label ?: "自定义地址"} · ${profile.baseUrl}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -208,6 +212,7 @@ private fun ProfileItem(
 }
 
 /** 连接编辑/新建对话框（含向导文案；C2 宿主命令 + C3 保存前必测） */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 private fun ProfileEditorDialog(
     initial: ConnectionProfile?,
@@ -222,9 +227,9 @@ private fun ProfileEditorDialog(
     var password by remember { mutableStateOf(initial?.password ?: "") }
     var timeout by remember { mutableStateOf((initial?.timeoutMs ?: 10_000L).toString()) }
     var agentType by remember { mutableStateOf(initial?.agentType ?: com.grandcouncil.remote.model.AgentType.REASONIX) }
-    var connectionType by remember { mutableStateOf(initial?.type ?: com.grandcouncil.remote.connection.ConnectionType.LAN) }
+    var connectionType by remember { mutableStateOf<com.grandcouncil.remote.connection.ConnectionType?>(initial?.type) }
+    var projectId by remember { mutableStateOf(initial?.projectId ?: "") }
     var authMode by remember { mutableStateOf(initial?.authMode ?: com.grandcouncil.remote.connection.AuthMode.NONE) }
-    var typeMenuOpen by remember { mutableStateOf(false) }
     var agentMenuOpen by remember { mutableStateOf(false) }
     var authMenuOpen by remember { mutableStateOf(false) }
 
@@ -251,26 +256,9 @@ private fun ProfileEditorDialog(
                         )
                     }
                 }
-                // 穿透方式（向导第二步）
-                DropdownField(
-                    label = stringResource(R.string.field_connection_type),
-                    value = connectionType.label,
-                    expanded = typeMenuOpen,
-                    onToggle = { typeMenuOpen = !typeMenuOpen },
-                ) {
-                    com.grandcouncil.remote.connection.ConnectionType.entries.forEach { option ->
-                        DropdownMenuItem(
-                            text = { Text(option.label) },
-                            onClick = {
-                                connectionType = option
-                                typeMenuOpen = false
-                                // 切换方式时用示例地址填空（用户可改）
-                                if (baseUrl.isBlank() && initial == null) baseUrl = option.exampleUrl
-                            },
-                        )
-                    }
-                }
                 OutlinedField(stringResource(R.string.field_base_url), baseUrl) { baseUrl = it }
+                // 网关项目路由（tl964 G3：从高级提为一等字段；空 = 直连单实例）
+                OutlinedField("项目（servepool 网关多项目时，可选）", projectId) { projectId = it }
                 // 认证方式
                 DropdownField(
                     label = stringResource(R.string.field_auth_mode),
@@ -324,7 +312,31 @@ private fun ProfileEditorDialog(
                         }
                     }
                 }
-                // 穿透方式内置配置向导
+                // 快捷填充（tl964 G1：预设不是准入门槛，不选也能保存任意合法地址；
+                //  点芯片 = 填模板地址 + 展示对应帮助文案）
+                Text(
+                    "快捷填充（可选）：",
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+                FlowRow(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    com.grandcouncil.remote.connection.ConnectionType.entries.forEach { option ->
+                        AssistChip(
+                            onClick = {
+                                connectionType = option
+                                // 地址为空或仍是模板地址时才填入，避免覆盖用户手填
+                                val isTemplate =
+                                    com.grandcouncil.remote.connection.ConnectionType.entries.any { it.exampleUrl == baseUrl }
+                                if (baseUrl.isBlank() || isTemplate) baseUrl = option.exampleUrl
+                            },
+                            label = { Text(option.label) },
+                        )
+                    }
+                }
+                // 组网帮助文案（未选预设时显示通用建议）
                 Text(
                     ConnectionGuide.stepsFor(connectionType).joinToString("\n") { "· $it" },
                     style = MaterialTheme.typography.bodySmall,
@@ -360,6 +372,7 @@ private fun ProfileEditorDialog(
                             type = connectionType,
                             baseUrl = baseUrl,
                             authMode = authMode,
+                            projectId = projectId.trim().ifBlank { null },
                             token = token,
                             password = password,
                             timeoutMs = timeout.toLongOrNull() ?: 10_000L,
