@@ -4,7 +4,7 @@ import com.grandcouncil.remote.model.AgentType
 import kotlinx.serialization.Serializable
 
 /**
- * 连接配置：对 App 透明——无论哪种穿透方式，
+ * 连接配置：对 App 透明——无论哪种组网方式，
  * App 只按 Base URL 发起 HTTP/SSE，穿透差异全在 URL 层面。
  */
 @Serializable
@@ -12,8 +12,9 @@ data class ConnectionProfile(
     val id: String,
     val name: String,
     val agentType: AgentType = AgentType.REASONIX,
-    /** 穿透方式预设（向导/帮助文案用） */
-    val type: ConnectionType = ConnectionType.LAN,
+    /** 组网方式提示（元数据，可空）：不参与请求构造，仅用于帮助文案与列表展示；
+     *  手填地址可不选（tl964 G2：新建连接不强制选组网类型） */
+    val type: ConnectionType? = null,
     /** http(s)://host:port，如 https://xxx.iepose.cn / http://100.x.x.x:18789 */
     val baseUrl: String,
     val authMode: AuthMode = AuthMode.NONE,
