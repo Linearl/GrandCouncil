@@ -126,6 +126,20 @@ class SessionRepository {
             }.map { }
         }
 
+    /** GC-22：上传图片拿 @ref（POST /attachments，base64→ref，64MiB 上限）。
+     *  内容物化在 PC 端（serve 存 workspace/.reasonix/attachments/），
+     *  天然无手机本机路径外泄；失败返回错误供 UI 提示（fail-closed 前置）。 */
+    suspend fun uploadImage(profile: ConnectionProfile, base64Data: String, mime: String): Result<String> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val body = buildJsonObject {
+                    put("data", JsonPrimitive(base64Data))
+                    put("mime", JsonPrimitive(mime))
+                }
+                HttpClientFactory.createApi(profile).uploadAttachment(body).ref
+            }
+        }
+
     /** 思考档位命令：POST /submit {"input": "/effort <level>"}，返回 HTTP 状态码（null=网络异常） */
     @Volatile
     var lastEffortError: String? = null

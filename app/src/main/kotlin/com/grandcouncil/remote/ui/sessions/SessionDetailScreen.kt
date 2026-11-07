@@ -1,6 +1,7 @@
 package com.grandcouncil.remote.ui.sessions
 
 import android.content.Context
+import android.util.Base64
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -182,6 +183,37 @@ fun SessionDetailScreen(
         state.releaseMessage?.let { msg ->
             Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
             viewModel.clearReleaseMessage()
+        }
+    }
+
+    // GC-22：图片选择器——读流→base64→ViewModel 上传拿 @ref（内容物化 PC 端，无手机路径外泄）
+    val pickImageLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia(),
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                val base64 = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    runCatching {
+                        val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                            ?: error("无法读取图片")
+                        Base64.encodeToString(bytes, Base64.NO_WRAP)
+                    }.getOrNull()
+                }
+                if (base64 != null) {
+                    val mime = context.contentResolver.getType(uri) ?: "image/png"
+                    viewModel.attachImage(base64, mime)
+                } else {
+                    Toast.makeText(context, "读取图片失败", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    // GC-22：附件上传失败提示（成功提示走 statusText），消费后清空
+    LaunchedEffect(state.attachmentError) {
+        state.attachmentError?.let { msg ->
+            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+            viewModel.clearAttachmentNotice()
         }
     }
 
@@ -403,6 +435,16 @@ fun SessionDetailScreen(
                     onOpenEffort = { effortSheetOpen = true },
                     approvalMode = state.approvalMode,
                     onApprovalModeChange = { viewModel.setApprovalMode(it) },
+                    // GC-22 远程附件：上传中禁发（fail-closed）；就绪后 @ref 随下条消息发送
+                    attachmentUploading = state.attachmentUploading,
+                    attachmentRef = state.attachmentRef,
+                    onPickImage = {
+                        pickImageLauncher.launch(
+                            androidx.activity.result.PickVisualMediaRequest.Builder()
+                                .setMediaType(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                .build(),
+                        )
+                    },
                     voiceSlot = {
                         VoiceInputButton(
                             onResult = { text -> input = if (input.isBlank()) text else "$input $text" },
@@ -701,6 +743,10 @@ private fun InputBar(
     onOpenEffort: () -> Unit,
     approvalMode: String?,
     onApprovalModeChange: (ApprovalMode) -> Unit,
+    /** GC-22 远程附件：上传中（fail-closed 禁发）/ 已就绪 @ref / 选图回调 */
+    attachmentUploading: Boolean,
+    attachmentRef: String?,
+    onPickImage: () -> Unit,
     voiceSlot: @Composable () -> Unit = {},
 ) {
     val haptic = LocalHapticFeedback.current
@@ -863,6 +909,51 @@ private fun InputBar(
                     }
                 }
                 Spacer(Modifier.weight(1f))
+                // GC-22 图片附件：📷 选图→上传拿 @ref；上传中转圈，就绪后高亮
+                Box(
+                    modifier = Modifier
+                        .height(30.dp)
+                        .widthIn(min = 30.dp)
+                        .background(
+                            when {
+                                attachmentUploading -> Color.Transparent
+                                attachmentRef != null -> MaterialTheme.colorScheme.primaryContainer
+                                else -> Color.Transparent
+                            },
+                            CircleShape,
+                        )
+                        .pointerInput(attachmentUploading, readOnly) {
+                            detectTapGestures(
+                                onTap = { if (!readOnly && !attachmentUploading) onPickImage() },
+                                onLongPress = {
+                                    Toast.makeText(
+                                        context,
+                                        when {
+                                            attachmentUploading -> "图片上传中…"
+                                            attachmentRef != null -> "图片已就绪，随下条消息发送"
+                                            else -> "选择图片（上传后随消息发送）"
+                                        },
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
+                                },
+                            )
+                        },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (attachmentUploading) {
+                        CircularProgressIndicator(
+                            Modifier.size(16.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    } else {
+                        Text(
+                            "📷",
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.alpha(if (attachmentRef != null) 1f else if (readOnly) 0.4f else 0.7f),
+                        )
+                    }
+                }
                 // 语音听写（工具行右侧）
                 voiceSlot()
             }
