@@ -37,46 +37,51 @@ class SseClient(
     private val json = Json { ignoreUnknownKeys = true }
 
     /** 订阅 serve 事件流，解析为 [ServeEventDto]。
-     *  断线（onFailure/onClosed）不关 flow：退避后自动重建连接（GC-23）。 */
+     *  断线（onFailure/onClosed）不关 flow：退避后自动重建连接（GC-23）。
+     *  每轮独立断开信号 Channel（代际隔离）——cancel() 自触发的 onFailure
+     *  残留信号只进本轮 channel，不会被下一轮误消费致新连接秒被 cancel；
+     *  backoff/current 用原子类（OkHttp 回调线程与重连协程跨线程共享）。 */
     fun events(eventsUrl: String): Flow<ServeEventDto> = callbackFlow {
         val request = Request.Builder().url(eventsUrl).build()
-        // 断开信号（CONFLATED：重复断开合并为一次重连周期）
-        val disconnected = kotlinx.coroutines.channels.Channel<Unit>(
-            kotlinx.coroutines.channels.Channel.CONFLATED,
-        )
-        var backoffMs = INITIAL_BACKOFF_MS
-        var current: EventSource? = null
-        val listener = object : EventSourceListener() {
-            override fun onEvent(eventSource: EventSource, id: String?, type: String?, data: String) {
-                backoffMs = INITIAL_BACKOFF_MS // 收到事件=连接健康，退避重置
-                runCatching { json.decodeFromString(ServeEventDto.serializer(), data) }
-                    .onSuccess { trySend(it) }
-                    .onFailure { /* 未知事件结构，忽略（serve 协议演进容错） */ }
-            }
-
-            override fun onFailure(eventSource: EventSource, t: Throwable?, response: Response?) {
-                // 不关 flow：发断开信号，由重连循环退避重建
-                disconnected.trySend(Unit)
-            }
-
-            override fun onClosed(eventSource: EventSource) {
-                disconnected.trySend(Unit)
-            }
-        }
+        val backoffMs = java.util.concurrent.atomic.AtomicLong(INITIAL_BACKOFF_MS)
+        val current = java.util.concurrent.atomic.AtomicReference<EventSource?>(null)
         // 重连循环（ProducerScope 内 launch；外层调用方的 while(true)/attempts
         // 重连降为兑底，仅在本层自身异常关流时接管）
         val reconnectJob = launch {
             while (true) {
-                current = EventSources.createFactory(client).newEventSource(request, listener)
+                // 本轮专属断开信号（代际隔离：旧轮残留不跨轮）
+                val disconnected = kotlinx.coroutines.channels.Channel<Unit>(
+                    kotlinx.coroutines.channels.Channel.CONFLATED,
+                )
+                val listener = object : EventSourceListener() {
+                    override fun onEvent(eventSource: EventSource, id: String?, type: String?, data: String) {
+                        backoffMs.set(INITIAL_BACKOFF_MS) // 收到事件=连接健康，退避重置
+                        runCatching { json.decodeFromString(ServeEventDto.serializer(), data) }
+                            .onSuccess { trySend(it) }
+                            .onFailure { /* 未知事件结构，忽略（serve 协议演进容错） */ }
+                    }
+
+                    override fun onFailure(eventSource: EventSource, t: Throwable?, response: Response?) {
+                        // 不关 flow：发断开信号，由本轮 receive 唤醒退避重建
+                        disconnected.trySend(Unit)
+                    }
+
+                    override fun onClosed(eventSource: EventSource) {
+                        disconnected.trySend(Unit)
+                    }
+                }
+                val es = EventSources.createFactory(client).newEventSource(request, listener)
+                current.set(es)
                 disconnected.receive()
-                current?.cancel()
-                delay(backoffMs)
-                backoffMs = (backoffMs * 2).coerceAtMost(MAX_BACKOFF_MS)
+                es.cancel() // 触发的 onFailure 入本轮 channel（已消费完，废弃无害）
+                current.compareAndSet(es, null)
+                delay(backoffMs.get())
+                backoffMs.updateAndGet { (it * 2).coerceAtMost(MAX_BACKOFF_MS) }
             }
         }
         awaitClose {
             reconnectJob.cancel()
-            current?.cancel()
+            current.getAndSet(null)?.cancel()
         }
     }
 
