@@ -84,6 +84,8 @@ class ConnectionViewModel(
                     current + profile
                 }
                 connectionStore.save(updated)
+                // GC-20：保存成功记最近链接（供新建表单快捷复用）
+                connectionStore.recordRecent(profile.baseUrl)
                 _uiState.value = _uiState.value.copy(saving = false)
                 closeEditor()
             } else {

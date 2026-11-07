@@ -48,11 +48,16 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import com.grandcouncil.remote.R
 import com.grandcouncil.remote.connection.ConnectionGuide
 import com.grandcouncil.remote.connection.ConnectionProfile
 import com.grandcouncil.remote.connection.ConnectionStore
 import com.grandcouncil.remote.connection.ConnectionTester
+import com.grandcouncil.remote.connection.RecentLinksStore
+import com.grandcouncil.remote.scan.ScannerActivity
 import kotlinx.coroutines.launch
 
 /**
@@ -232,6 +237,16 @@ private fun ProfileEditorDialog(
     var authMode by remember { mutableStateOf(initial?.authMode ?: com.grandcouncil.remote.connection.AuthMode.NONE) }
     var agentMenuOpen by remember { mutableStateOf(false) }
     var authMenuOpen by remember { mutableStateOf(false) }
+    // GC-20：扫码配对 launcher（扫到 http(s) 地址回填 Base URL）
+    val scanLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        val url = result.data?.getStringExtra(ScannerActivity.EXTRA_URL)
+        if (!url.isNullOrBlank()) baseUrl = url
+    }
+    // GC-20：最近链接（新建时显示，点击复用；私有存储最多 5 条）
+    val editorContext = LocalContext.current
+    val recentLinks = remember(editorContext) { RecentLinksStore(editorContext).list() }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -313,12 +328,38 @@ private fun ProfileEditorDialog(
                     }
                 }
                 // 快捷填充（tl964 G1：预设不是准入门槛，不选也能保存任意合法地址；
-                //  点芯片 = 填模板地址 + 展示对应帮助文案）
-                Text(
-                    "快捷填充（可选）：",
-                    style = MaterialTheme.typography.labelMedium,
-                    modifier = Modifier.padding(top = 8.dp),
-                )
+                //  点芯片 = 填模板地址 + 展示对应帮助文案）；GC-20 加扫码入口
+                Row(
+                    Modifier.fillMaxWidth().padding(top = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "快捷填充（可选）：",
+                        style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(onClick = {
+                        scanLauncher.launch(Intent(editorContext, ScannerActivity::class.java))
+                    }) {
+                        Text("📷 扫码", style = MaterialTheme.typography.labelMedium)
+                    }
+                }
+                // GC-20 最近链接（仅新建时展示，点击复用）
+                if (initial == null && recentLinks.isNotEmpty()) {
+                    FlowRow(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        recentLinks.forEach { link ->
+                            AssistChip(
+                                onClick = { baseUrl = link },
+                                label = {
+                                    Text(link.removePrefix("http://").removePrefix("https://").take(28))
+                                },
+                            )
+                        }
+                    }
+                }
                 FlowRow(
                     Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
