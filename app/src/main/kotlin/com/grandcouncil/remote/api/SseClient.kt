@@ -4,8 +4,10 @@ import com.grandcouncil.remote.api.dto.ServeEventDto
 import com.grandcouncil.remote.connection.AuthMode
 import com.grandcouncil.remote.connection.ConnectionProfile
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -21,7 +23,12 @@ import java.util.concurrent.TimeUnit
  * Reasonix serve SSE：GET /events（keepalive `: ping` 注释行），
  * 事件 JSON：{"kind": "reasoning|text|message|tool_dispatch|tool_result|approval_request|turn_done|..."}。
  *
- * TODO(M2)：断线自动重连 + 指数退避 + busy 会话重同步（P0-2 二期）
+ * GC-23：断线自动重连 + 指数退避（原 TODO(M2) 前两项）——
+ * 重连在本层内循环（1s 起倍增、30s 封顶、收到事件即重置、无限自愈），
+ * 断线不再关闭 flow：前台 ViewModel / 后台 NotificationMonitor 的
+ * 外层重连（固定 3s / 3 次封顶）降为兑底。耗电：封顶后每 30s 一次
+ * 连接尝试，成功即停。TODO 第三项「busy 会话重同步」（断线期间错过的
+ * turn_done 等事件补偿）仍开放，需业务层重拉 /history，不在本件范围。
  */
 class SseClient(
     private val client: OkHttpClient,
@@ -29,29 +36,55 @@ class SseClient(
 
     private val json = Json { ignoreUnknownKeys = true }
 
-    /** 订阅 serve 事件流，解析为 [ServeEventDto] */
+    /** 订阅 serve 事件流，解析为 [ServeEventDto]。
+     *  断线（onFailure/onClosed）不关 flow：退避后自动重建连接（GC-23）。 */
     fun events(eventsUrl: String): Flow<ServeEventDto> = callbackFlow {
         val request = Request.Builder().url(eventsUrl).build()
+        // 断开信号（CONFLATED：重复断开合并为一次重连周期）
+        val disconnected = kotlinx.coroutines.channels.Channel<Unit>(
+            kotlinx.coroutines.channels.Channel.CONFLATED,
+        )
+        var backoffMs = INITIAL_BACKOFF_MS
+        var current: EventSource? = null
         val listener = object : EventSourceListener() {
             override fun onEvent(eventSource: EventSource, id: String?, type: String?, data: String) {
+                backoffMs = INITIAL_BACKOFF_MS // 收到事件=连接健康，退避重置
                 runCatching { json.decodeFromString(ServeEventDto.serializer(), data) }
                     .onSuccess { trySend(it) }
                     .onFailure { /* 未知事件结构，忽略（serve 协议演进容错） */ }
             }
 
             override fun onFailure(eventSource: EventSource, t: Throwable?, response: Response?) {
-                close(t ?: RuntimeException("SSE connection failed: ${response?.code}"))
+                // 不关 flow：发断开信号，由重连循环退避重建
+                disconnected.trySend(Unit)
             }
 
             override fun onClosed(eventSource: EventSource) {
-                close()
+                disconnected.trySend(Unit)
             }
         }
-        val eventSource = EventSources.createFactory(client).newEventSource(request, listener)
-        awaitClose { eventSource.cancel() }
+        // 重连循环（ProducerScope 内 launch；外层调用方的 while(true)/attempts
+        // 重连降为兑底，仅在本层自身异常关流时接管）
+        val reconnectJob = launch {
+            while (true) {
+                current = EventSources.createFactory(client).newEventSource(request, listener)
+                disconnected.receive()
+                current?.cancel()
+                delay(backoffMs)
+                backoffMs = (backoffMs * 2).coerceAtMost(MAX_BACKOFF_MS)
+            }
+        }
+        awaitClose {
+            reconnectJob.cancel()
+            current?.cancel()
+        }
     }
 
     companion object {
+        /** 指数退避参数：1s 起倍增，30s 封顶（收到事件即重置） */
+        private const val INITIAL_BACKOFF_MS = 1_000L
+        private const val MAX_BACKOFF_MS = 30_000L
+
         /** SSE 专用客户端：读超时无限（长连接安静期不能按业务超时断） */
         fun forProfile(profile: ConnectionProfile): SseClient =
             SseClient(
