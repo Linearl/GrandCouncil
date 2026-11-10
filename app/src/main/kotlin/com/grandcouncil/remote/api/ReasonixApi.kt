@@ -57,9 +57,11 @@ interface ReasonixApi {
 
     // ---- 对话 ----
 
-    /** POST /submit — 发送消息（M2，state-changing 必须 JSON Content-Type） */
+    /** POST /submit — 发送消息（M2，state-changing 必须 JSON Content-Type）。
+     *  tl538a：返回 Response 显式判非 2xx——409 等业务拒绝不得被当成功吞掉
+     *  （原 JsonObject 形态下 409 被静默，UI 排队中假象）。 */
     @POST("submit")
-    suspend fun submit(@Body body: JsonObject): JsonObject
+    suspend fun submit(@Body body: JsonObject): retrofit2.Response<JsonObject>
 
     /** POST /submit — 原始响应（用于 /effort 斜杠命令：204 无 body 需走 Response 拿状态码） */
     @POST("submit")

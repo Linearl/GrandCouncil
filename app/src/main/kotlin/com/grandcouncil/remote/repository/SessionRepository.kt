@@ -112,13 +112,19 @@ class SessionRepository {
             used to window
         }
 
-    /** 发送消息（state-changing，JSON Content-Type） */
+    /** 发送消息（state-changing，JSON Content-Type）。
+     *  tl538a：非 2xx 显式转 failure（原形态 409 静默当成功→排队中假象）——
+     *  VM onFailure 链路（移除乐观消息+restoreInput+error banner）随之接通。 */
     suspend fun submit(profile: ConnectionProfile, input: String): Result<Unit> =
         withContext(Dispatchers.IO) {
             runCatching {
-                HttpClientFactory.createApi(profile).submit(
+                val resp = HttpClientFactory.createApi(profile).submit(
                     buildJsonObject { put("input", JsonPrimitive(input)) },
                 )
+                if (!resp.isSuccessful) {
+                    val body = runCatching { resp.errorBody()?.string() }.getOrNull()
+                    error("HTTP ${resp.code()}${body?.take(160)?.let { ": $it" } ?: ""}")
+                }
             }.map { }
         }
 
@@ -221,13 +227,15 @@ class SessionRepository {
             runCatching { HttpClientFactory.createApi(profile).models() }
         }
 
-    /** 切换模型（serve 拦截 submit 的 /model <ref> 斜杠命令） */
+    /** 切换模型（serve 拦截 submit 的 /model <ref> 斜杠命令）。
+     *  tl538a 同族：非 2xx 同样转 failure（原形态失败被吞）。 */
     suspend fun switchModel(profile: ConnectionProfile, ref: String): Result<Unit> =
         withContext(Dispatchers.IO) {
             runCatching {
-                HttpClientFactory.createApi(profile).submit(
+                val resp = HttpClientFactory.createApi(profile).submit(
                     buildJsonObject { put("input", JsonPrimitive("/model $ref")) },
                 )
+                if (!resp.isSuccessful) error("HTTP ${resp.code()}")
             }.map { }
         }
 }
