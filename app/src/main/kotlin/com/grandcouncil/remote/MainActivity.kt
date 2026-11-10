@@ -54,7 +54,9 @@ class MainActivity : FragmentActivity() {
         // 端口被占时跳过即可（旧实例仍在服务），不得拖垮主程序。
         if ((applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0) {
             debugApiServer = DebugApiServer(ConnectionStore(applicationContext), SessionRepository()).also {
+                // 信息级（审查建议）：吞 start 失败时留痕，排障不靠端口推断
                 runCatching { it.start() }
+                    .onFailure { t -> android.util.Log.w("GrandCouncil", "DebugApiServer start skipped", t) }
             }
         }
         // A3 通知渠道 + Android 13+ 运行时权限（首次启动请求）
