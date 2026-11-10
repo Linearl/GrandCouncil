@@ -28,9 +28,11 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -120,7 +122,10 @@ fun SessionDrawerContent(
             refreshing = state.refreshing,
             onRefresh = { viewModel.forceReload() },
         )
-        // 搜索框（A2；本地即时显示 + VM 200ms 防抖过滤）
+        // 搜索框（A2；本地即时显示 + VM 200ms 防抖过滤）。
+        // 任务 537 返修（1015 打回）：补显式触发/清除按钮（用户要求「加一个按键」）
+        // + IME 回车；项目名与项目下会话均参与过滤（placeholder 语义同步）。
+        val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
         var localQuery by remember { mutableStateOf(state.searchQuery) }
         androidx.compose.material3.OutlinedTextField(
             value = localQuery,
@@ -128,8 +133,35 @@ fun SessionDrawerContent(
                 localQuery = it
                 viewModel.setSearchQuery(it)
             },
-            placeholder = { Text("搜索会话…") },
+            placeholder = { Text("搜索项目和会话…") },
             singleLine = true,
+            trailingIcon = {
+                Row {
+                    if (localQuery.isNotEmpty()) {
+                        IconButton(onClick = {
+                            localQuery = ""
+                            viewModel.clearSearch()
+                        }) {
+                            Icon(Icons.Filled.Clear, contentDescription = "清除搜索")
+                        }
+                    }
+                    IconButton(onClick = {
+                        viewModel.commitSearch(localQuery)
+                        keyboard?.hide()
+                    }) {
+                        Icon(Icons.Filled.Search, contentDescription = "搜索")
+                    }
+                }
+            },
+            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                imeAction = androidx.compose.ui.text.input.ImeAction.Search,
+            ),
+            keyboardActions = androidx.compose.foundation.text.KeyboardActions(
+                onSearch = {
+                    viewModel.commitSearch(localQuery)
+                    keyboard?.hide()
+                },
+            ),
             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp),
         )
         // 状态筛选
@@ -172,22 +204,43 @@ fun SessionDrawerContent(
                     }
 
                 else -> {
-                    // 设备（serve pool 网关）→ 项目分组 → 项目 →（点项目展开）会话分组 → 会话
-                    // 项目树来自 /manifest，与是否已有会话无关——三层列表必须始终渲染，
-                    // 否则"暂无会话"占位会把懒加载入口挡死（0 会话的新网关场景）。
-                    DeviceProjectList(
-                        profiles = state.profiles,
-                        state = state,
-                        density = state.density,
-                        onlineIds = state.serveInfoByProfile.keys,
-                        favorites = state.favorites,
-                        projectErrors = state.projectErrors,
-                        onOpen = onSelectSession,
-                        onDelete = { viewModel.deleteSession(it) },
-                        onToggleFavorite = { viewModel.toggleFavorite(it) },
-                        onExpandProject = viewModel::loadProjectSessions,
-                        onCollapseProject = viewModel::collapseProject,
-                    )
+                    if (state.searchQuery.isNotBlank()) {
+                        // 任务 537 返修：搜索模式——跨项目扁平结果（会话标题过滤）
+                        // + 项目名匹配的项目段（项目层参与过滤）；
+                        // 无匹配明确提示（区别于「没在搜」）
+                        SearchResultsList(
+                            results = state.searchResults,
+                            matchedProjects = state.matchedProjects,
+                            loading = state.searchLoading,
+                            density = state.density,
+                            favorites = state.favorites,
+                            onOpen = onSelectSession,
+                            onOpenProject = { profileId, projectId ->
+                                // 点匹配项目：清搜索回到项目树视图并展开该项目
+                                viewModel.clearSearch()
+                                viewModel.loadProjectSessions(profileId, projectId)
+                            },
+                            onDelete = { viewModel.deleteSession(it) },
+                            onToggleFavorite = { viewModel.toggleFavorite(it) },
+                        )
+                    } else {
+                        // 设备（serve pool 网关）→ 项目分组 → 项目 →（点项目展开）会话分组 → 会话
+                        // 项目树来自 /manifest，与是否已有会话无关——三层列表必须始终渲染，
+                        // 否则"暂无会话"占位会把懒加载入口挡死（0 会话的新网关场景）。
+                        DeviceProjectList(
+                            profiles = state.profiles,
+                            state = state,
+                            density = state.density,
+                            onlineIds = state.serveInfoByProfile.keys,
+                            favorites = state.favorites,
+                            projectErrors = state.projectErrors,
+                            onOpen = onSelectSession,
+                            onDelete = { viewModel.deleteSession(it) },
+                            onToggleFavorite = { viewModel.toggleFavorite(it) },
+                            onExpandProject = viewModel::loadProjectSessions,
+                            onCollapseProject = viewModel::collapseProject,
+                        )
+                    }
                 }
             }
         }
@@ -320,6 +373,100 @@ private fun FilterRow(current: SessionFilter, onSelect: (SessionFilter) -> Unit)
     }
 }
 
+/** 搜索结果列表（任务 537 返修）：会话标题匹配（跨项目扁平罗列，showDevice 区分多设备）
+ *  + 项目名匹配的项目段（项目层参与过滤；点击=清搜索并展开该项目）。
+ *  两者皆空明确提示「无匹配项目和会话」；加载中显示转圈——不再让用户误读「没搜到 vs 没在搜」。 */
+@Composable
+private fun SearchResultsList(
+    results: List<AggregatedSession>,
+    matchedProjects: List<Pair<ConnectionProfile, ProjectEntryDto>>,
+    loading: Boolean,
+    density: DensityPreset,
+    favorites: Set<String>,
+    onOpen: (AggregatedSession) -> Unit,
+    onOpenProject: (profileId: String, projectId: String) -> Unit,
+    onDelete: (AggregatedSession) -> Unit,
+    onToggleFavorite: (AggregatedSession) -> Unit,
+) {
+    when {
+        loading && results.isEmpty() && matchedProjects.isEmpty() ->
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
+        results.isEmpty() && matchedProjects.isEmpty() ->
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(
+                    "无匹配项目和会话",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        else -> LazyColumn(Modifier.fillMaxSize()) {
+            if (matchedProjects.isNotEmpty()) {
+                item(key = "srch-proj-header") {
+                    Text(
+                        "匹配项目",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    )
+                }
+                matchedProjects.forEach { (profile, project) ->
+                    item(key = "srch-proj-${profile.id}:${project.id}") {
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable { onOpenProject(profile.id, project.id) }
+                                .padding(horizontal = 16.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Box(
+                                Modifier.size(10.dp)
+                                    .background(projectColor(project.color), CircleShape)
+                            )
+                            Text(
+                                project.name.ifBlank { project.id },
+                                style = MaterialTheme.typography.bodyLarge,
+                                modifier = Modifier.padding(start = 8.dp).weight(1f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                "▸",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            }
+            if (results.isNotEmpty()) {
+                item(key = "srch-sess-header") {
+                    Text(
+                        "匹配会话",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    )
+                }
+                items(
+                    results,
+                    key = { "${it.profile.id}:${it.session.id}" },
+                ) { item ->
+                    SessionItem(
+                        item = item,
+                        density = density,
+                        showDevice = true,
+                        isFavorite = "${item.profile.id}:${item.session.id}" in favorites,
+                        onClick = { onOpen(item) },
+                        onDelete = { onDelete(item) },
+                        onToggleFavorite = { onToggleFavorite(item) },
+                    )
+                }
+            }
+        }
+    }
+}
+
 /** 按项目分组的会话列表（组头=设备名+在线状态；左滑删除） */
 // projectColor maps a desktop project color token (amber/blue/green/...) to a
 // Compose Color for the session-group header dot / accent. Unknown tokens fall
@@ -382,7 +529,16 @@ private fun DeviceProjectList(
                     )
                 }
             } else {
-                val byGroup = projects.groupBy { it.group.ifBlank { "未分组" } }
+                // 任务 541：servepool 的 virtual 'global' 项目（桌面端 Global 顶层区，
+                // 非 serve pool 注册项目）提升为独立分组且置顶——不混入「未分组」，
+                // 与桌面端顶层 Global 区语义对齐，Global scope 会话由此可选可接管。
+                val globalProjects = projects.filter { it.id.equals("global", ignoreCase = true) }
+                val byGroup = buildMap {
+                    if (globalProjects.isNotEmpty()) put("Global", globalProjects)
+                    projects.filterNot { it.id.equals("global", ignoreCase = true) }
+                        .groupBy { it.group.ifBlank { "未分组" } }
+                        .forEach { (group, groupProjects) -> put(group, groupProjects) }
+                }
                 byGroup.forEach { (group, groupProjects) ->
                     item(key = "group-${profile.id}-${group}") {
                         Text(

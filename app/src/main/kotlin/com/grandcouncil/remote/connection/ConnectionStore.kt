@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.grandcouncil.remote.security.CredentialCipher
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
@@ -29,16 +30,33 @@ class ConnectionStore(private val context: Context) {
 
     private val serializer = ListSerializer(ConnectionProfile.serializer())
 
-    /** 连接列表流（token/password 已解密为明文） */
+    /** 连接列表流（token/password 已解密为明文；读取时按身份键去重——任务 542） */
     val profiles: Flow<List<ConnectionProfile>> = context.connectionDataStore.data.map { prefs ->
         val raw = prefs[profilesKey] ?: return@map emptyList()
         runCatching { json.decodeFromString(serializer, raw) }
             .getOrDefault(emptyList())
             .map { it.decryptCredentials() }
+            .let { ConnectionProfile.dedupeByIdentity(it) }
     }
 
     /** 当前使用的连接 id 流 */
     val activeId: Flow<String?> = context.connectionDataStore.data.map { it[activeIdKey] }
+
+    /**
+     * 历史重复条目落盘收敛（任务 542 验收②）：同一 serve（URL 归一化后相同）
+     * 只保留最早创建的一条。App 启动/进配置页时调用一次；无重复时不写盘。
+     * @return 发生合并时为 true（被合并的条目数）。
+     */
+    suspend fun convergeDuplicates(): Int {
+        val current = context.connectionDataStore.data.first()[profilesKey]
+            ?.let { raw -> runCatching { json.decodeFromString(serializer, raw) }.getOrDefault(emptyList()) }
+            ?.map { it.decryptCredentials() }
+            ?: return 0
+        val deduped = ConnectionProfile.dedupeByIdentity(current)
+        if (deduped.size == current.size) return 0
+        save(deduped)
+        return current.size - deduped.size
+    }
 
     suspend fun save(profiles: List<ConnectionProfile>) {
         val encrypted = profiles.map { it.encryptCredentials() }

@@ -58,7 +58,7 @@ data class SessionDetailUiState(
     val approvalMode: String? = null,
     /** 已主动释放所有权（详情页提示状态） */
     val ownershipReleased: Boolean = false,
-    /** 「释放所有权」按钮进行中（POST /release-session 等待） */
+    /** 「释放所有权」按钮进行中（设备级 /heartbeat release 等待） */
     val releasingOwnership: Boolean = false,
     /** 释放所有权的一次性反馈消息（成功/失败；UI 消费后清空） */
     val releaseMessage: String? = null,
@@ -181,14 +181,9 @@ class SessionDetailViewModel(
     }
 
     override fun onCleared() {
-        // 离开会话详情：主动释放所有权（桌面端立即可重新获取；serve 端无租约则 409 被忽略）
-        session?.let { s ->
-            kotlinx.coroutines.GlobalScope.launch {
-                repository.releaseOwnership(profile, profile.projectId, s.id)
-            }
-        }
-        // 任务 36 Phase 2：onStop 立即释放整个设备租约（不等 serve 90s 过期）——
-        // 本端离开后桌面端马上恢复可写。失败静默：serve 端仍有过期兜底。
+        // 任务 538：离开会话统一释放设备级租约（会话级 /release-session 路径已删除；
+        // serve 端 freeLeaseIfDeviceHeld 会据此释放锁，桌面端立即恢复可写）。
+        // 失败静默：serve 端仍有 90s 过期兜底。
         kotlinx.coroutines.GlobalScope.launch {
             repository.releaseDeviceLease(profile, profile.projectId)
         }
@@ -206,12 +201,11 @@ class SessionDetailViewModel(
         }
     }
 
-    /** 主动释放所有权（离开会话/显式按钮；桌面端立即可重新获取） */
+    /** 主动释放所有权（显式按钮；任务 538：统一走设备级租约释放，桌面端立即可重新获取） */
     fun releaseOwnership() {
-        val s = session ?: return
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(releasingOwnership = true, releaseMessage = null)
-            repository.releaseOwnership(profile, profile.projectId, s.id)
+            repository.releaseDeviceLease(profile, profile.projectId)
                 .onSuccess {
                     _uiState.value = _uiState.value.copy(
                         releasingOwnership = false,
@@ -438,6 +432,16 @@ class SessionDetailViewModel(
     fun send(text: String) {
         val raw = text.trim()
         if (raw.isEmpty()) return
+        // 任务 538：发送建立在设备级所有权之上——快照非持有（或进入会话未接管）
+        // 时不发送，回填输入并明确引导接管。UI 层已有 readOnly + takeoverThenSend
+        // 显式路径，这里是会话快照陈旧（如租约过期）时的兜底。
+        if (session?.heldBy != HeldBy.ME) {
+            _uiState.value = _uiState.value.copy(
+                restoreInput = raw,
+                error = "本设备未持有所有权，点「接管」获取所有权后再发送",
+            )
+            return
+        }
         viewModelScope.launch {
             val st = _uiState.value
             // 任务 36 Phase 0：send() 不再隐式接管——接管只发生在显式按钮

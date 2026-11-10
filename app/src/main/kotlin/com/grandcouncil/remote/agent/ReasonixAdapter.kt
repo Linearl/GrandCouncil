@@ -25,7 +25,8 @@ class ReasonixAdapter(
     override fun supports(feature: Feature): Boolean = when (feature) {
         Feature.STREAMING, Feature.APPROVAL, Feature.MODELS, Feature.CONTEXT,
         Feature.DELETE_SESSION, Feature.NEW_SESSION, Feature.EXPORT -> true
-        // serve 已具备 /release-session + /takeover-session（fork 合入 #8749，2026-08-31）
+        // serve 已具备 /takeover-session（fork 合入 #8749）；任务 538：GC 侧释放统一走
+        // 设备级 /heartbeat release，/release-session 已从 GC 删除
         Feature.TAKEOVER -> true
     }
 
