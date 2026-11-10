@@ -49,9 +49,12 @@ class MainActivity : FragmentActivity() {
         enableEdgeToEdge()
         // Debug-only embedded API: host-side tooling drives the real
         // repositories over adb forward instead of UI automation.
+        // E1（随 tl1534 族修）：BACK 退出后旧 server 线程仍占 8770，Activity
+        // 重建时二次 start 抛 EADDRINUSE 曾致启动 FATAL——debug API 是辅助面，
+        // 端口被占时跳过即可（旧实例仍在服务），不得拖垮主程序。
         if ((applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0) {
             debugApiServer = DebugApiServer(ConnectionStore(applicationContext), SessionRepository()).also {
-                it.start()
+                runCatching { it.start() }
             }
         }
         // A3 通知渠道 + Android 13+ 运行时权限（首次启动请求）
