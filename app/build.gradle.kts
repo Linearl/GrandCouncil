@@ -96,6 +96,13 @@ dependencies {
     // A4 生物识别锁
     implementation(libs.androidx.biometric)
 
+    // GC-20 扫码配对：CameraX 预览/分析 + ML Kit 条码识别
+    implementation(libs.androidx.camera.core)
+    implementation(libs.androidx.camera.camera2)
+    implementation(libs.androidx.camera.lifecycle)
+    implementation(libs.androidx.camera.view)
+    implementation(libs.mlkit.barcode.scanning)
+
     // Debug-only embedded API server (BuildConfig.DEBUG builds; see DebugApiServer)
     implementation("org.nanohttpd:nanohttpd:2.3.1") // release builds compile DebugApiServer too (runtime-guarded by FLAG_DEBUGGABLE)
 

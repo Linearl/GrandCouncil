@@ -65,6 +65,11 @@ class ConnectionStore(private val context: Context) {
         }
     }
 
+    /** GC-20：记录最近链接（连接保存成功后调用；最多 5 条，私有 SharedPreferences） */
+    fun recordRecent(url: String) {
+        RecentLinksStore(context).add(url)
+    }
+
     suspend fun setActive(id: String?) {
         context.connectionDataStore.edit { prefs ->
             if (id == null) prefs.remove(activeIdKey) else prefs[activeIdKey] = id
