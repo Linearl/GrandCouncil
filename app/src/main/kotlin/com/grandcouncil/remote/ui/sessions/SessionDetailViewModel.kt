@@ -85,6 +85,12 @@ data class SessionDetailUiState(
     val queued: Boolean = false,
     /** 「接管」按钮进行中（POST /takeover-session 等待） */
     val takingOver: Boolean = false,
+    /** GC-22 远程附件：已物化的 @ref（非空=随下条消息发送；内容物化在 PC 端，无手机路径外泄） */
+    val attachmentRef: String? = null,
+    /** 附件上传中（fail-closed：true 时禁发） */
+    val attachmentUploading: Boolean = false,
+    /** 附件上传失败提示（UI 消费后清空） */
+    val attachmentError: String? = null,
 )
 
 /** 审批模式三档（对应 serve ask/auto/yolo） */
@@ -428,6 +434,37 @@ class SessionDetailViewModel(
         _uiState.value = _uiState.value.copy(restoreInput = null)
     }
 
+    /** GC-22：上传图片拿 @ref（base64 由 UI 层读流编码后传入）。
+     *  上传中 attachmentUploading=true——send() 据此 fail-closed 禁发。 */
+    fun attachImage(base64Data: String, mime: String) {
+        if (_uiState.value.attachmentUploading) return
+        _uiState.value = _uiState.value.copy(attachmentUploading = true, attachmentError = null)
+        viewModelScope.launch {
+            repository.uploadImage(profile, base64Data, mime).fold(
+                onSuccess = { ref ->
+                    _uiState.value = _uiState.value.copy(
+                        attachmentUploading = false,
+                        attachmentRef = ref,
+                        statusText = "图片已就绪，随下条消息发送",
+                    )
+                },
+                onFailure = { e ->
+                    _uiState.value = _uiState.value.copy(
+                        attachmentUploading = false,
+                        attachmentError = "图片上传失败：${e.message ?: "网络错误"}",
+                    )
+                },
+            )
+        }
+    }
+
+    /** UI 消费完附件提示后清空（避免重复弹） */
+    fun clearAttachmentNotice() {
+        if (_uiState.value.attachmentError != null) {
+            _uiState.value = _uiState.value.copy(attachmentError = null)
+        }
+    }
+
     /** 发送消息（T5 乐观插入：立即显示用户消息；失败移除并恢复输入框文本） */
     fun send(text: String) {
         val raw = text.trim()
@@ -442,16 +479,23 @@ class SessionDetailViewModel(
             )
             return
         }
+        // GC-22 fail-closed：附件未物化（上传中）禁发；纯文本无附件不受影响
+        if (_uiState.value.attachmentUploading) {
+            _uiState.value = _uiState.value.copy(statusText = "图片上传中，请稍候…")
+            return
+        }
         viewModelScope.launch {
             val st = _uiState.value
             // 任务 36 Phase 0：send() 不再隐式接管——接管只发生在显式按钮
             // 路径（takeover() / takeoverThenSend()），本函数直发，serve
             // 端的占用判定照常给出明确错误。
-            // 联网注入：开启时消息末尾追加注入文本（文档 §2.2）
+            // 联网注入：开启时消息末尾追加注入文本（文档 §2.2）；
+            // GC-22：有已物化附件时 input 头部嵌 @ref（serve @ref 解析+多模态管线）
+            val withRef = st.attachmentRef?.let { "@$it $raw" } ?: raw
             val input = if (st.webSearchEnabled) {
-                "$raw\n\n${st.webSearchPrompt}"
+                "$withRef\n\n${st.webSearchPrompt}"
             } else {
-                raw
+                withRef
             }
             // 思考档位：非 auto 时先发 /effort 斜杠命令（serve 端拦截，204 后无消息记录）
             val effort = st.effortLevel
@@ -472,7 +516,7 @@ class SessionDetailViewModel(
             val userMsg = RemoteMessage(
                 id = "user-${System.currentTimeMillis()}",
                 role = Role.USER,
-                content = raw,
+                content = withRef,
                 timestamp = System.currentTimeMillis(),
             )
             _uiState.value = _uiState.value.copy(
@@ -486,6 +530,8 @@ class SessionDetailViewModel(
                 _uiState.value = _uiState.value.copy(
                     streaming = _uiState.value.streaming ?: StreamingMessage(),
                     running = true,
+                    // GC-22：@ref 已随本条发送，清空待发附件
+                    attachmentRef = null,
                 )
                 // 排队提示（§1.3）：4s 内无任何 SSE 事件 → 显示「排队中（服务正忙）…」
                 viewModelScope.launch {
