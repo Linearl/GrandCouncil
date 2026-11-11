@@ -57,6 +57,7 @@ import com.grandcouncil.remote.connection.ConnectionProfile
 import com.grandcouncil.remote.connection.ConnectionStore
 import com.grandcouncil.remote.connection.ConnectionTester
 import com.grandcouncil.remote.connection.RecentLinksStore
+import com.grandcouncil.remote.connection.parseServePairingUrl
 import com.grandcouncil.remote.scan.ScannerActivity
 import kotlinx.coroutines.launch
 
@@ -242,11 +243,21 @@ private fun ProfileEditorDialog(
         ActivityResultContracts.StartActivityForResult(),
     ) { result ->
         val url = result.data?.getStringExtra(ScannerActivity.EXTRA_URL)
-        if (!url.isNullOrBlank()) baseUrl = url
+        if (!url.isNullOrBlank()) {
+            // tl1552：与最近链接回填同形态解析——?token=xxx 拆到 token 字段并切 TOKEN
+            // 认证（纯地址行为不变，tl1536 既有链零回退）
+            val parsed = parseServePairingUrl(url)
+            baseUrl = parsed.baseUrl
+            if (parsed.token.isNotBlank()) {
+                token = parsed.token
+                authMode = com.grandcouncil.remote.connection.AuthMode.TOKEN
+            }
+        }
     }
-    // GC-20：最近链接（新建时显示，点击复用；私有存储最多 5 条）
+    // tl1552 子项A：最近链接（地址+时间，一键回填含 token 拆分；带清空入口）
     val editorContext = LocalContext.current
-    val recentLinks = remember(editorContext) { RecentLinksStore(editorContext).list() }
+    val recentStore = remember(editorContext) { RecentLinksStore(editorContext) }
+    var recentLinks by remember(editorContext) { mutableStateOf(recentStore.list()) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -344,17 +355,42 @@ private fun ProfileEditorDialog(
                         Text("📷 扫码", style = MaterialTheme.typography.labelMedium)
                     }
                 }
-                // GC-20 最近链接（仅新建时展示，点击复用）
+                // tl1552 子项A：最近链接（仅新建时展示；地址+时间，一键回填含 token 拆分；可清空）
                 if (initial == null && recentLinks.isNotEmpty()) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(top = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            "最近链接：",
+                            style = MaterialTheme.typography.labelMedium,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(onClick = {
+                            recentStore.clear()
+                            recentLinks = emptyList()
+                        }) {
+                            Text("清空", style = MaterialTheme.typography.labelMedium)
+                        }
+                    }
                     FlowRow(
                         Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         recentLinks.forEach { link ->
                             AssistChip(
-                                onClick = { baseUrl = link },
+                                onClick = {
+                                    baseUrl = link.url
+                                    if (link.token.isNotBlank()) {
+                                        token = link.token
+                                        authMode = com.grandcouncil.remote.connection.AuthMode.TOKEN
+                                    }
+                                },
                                 label = {
-                                    Text(link.removePrefix("http://").removePrefix("https://").take(28))
+                                    Text(
+                                        "${link.url.removePrefix("http://").removePrefix("https://").take(24)}" +
+                                            " · ${formatRecentTime(link.savedAt)}",
+                                    )
                                 },
                             )
                         }
@@ -443,6 +479,13 @@ private fun OutlinedField(
         singleLine = true,
         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
     )
+}
+
+/** tl1552 子项A：最近链接时间展示（老数据/无时间为"—"） */
+private fun formatRecentTime(savedAt: Long): String {
+    if (savedAt <= 0) return "—"
+    return java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.getDefault())
+        .format(java.util.Date(savedAt))
 }
 
 @Composable
