@@ -1,6 +1,8 @@
 package com.grandcouncil.remote.ui.connections
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -263,7 +265,10 @@ private fun ProfileEditorDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (initial == null) stringResource(R.string.connections_add) else "编辑连接") },
         text = {
-            Column {
+            // tl1552：内容可滚动——最近链接行加入后对话框固定高度装不下，
+            // 不滚动会把其后所有行（chips/组网帮助文案）整体裁掉不可见
+            //（旧版帮助文案已被裁，本改动顺带修复）。
+            Column(Modifier.verticalScroll(rememberScrollState())) {
                 OutlinedField(stringResource(R.string.field_name), name) { name = it }
                 // agent 类型（向导第一步选 agent）
                 DropdownField(

@@ -39,6 +39,7 @@ import com.grandcouncil.remote.connection.AuthMode
 import com.grandcouncil.remote.connection.ConnectionGuide
 import com.grandcouncil.remote.connection.ConnectionProfile
 import com.grandcouncil.remote.connection.ConnectionStore
+import com.grandcouncil.remote.connection.RecentLinksStore
 import com.grandcouncil.remote.connection.ConnectionTester
 import com.grandcouncil.remote.connection.ConnectionType
 import com.grandcouncil.remote.api.HttpClientFactory
@@ -133,6 +134,9 @@ fun WizardScreen(modifier: Modifier = Modifier, onDone: () -> Unit = {}) {
                                 //（点项目才拉该项目会话，不占用于桌面端）。
                                 // 任务 542：按 URL 身份键合并，同一 serve 不再生成第二台设备。
                                 store.save(ConnectionProfile.mergeByIdentity(existing, profile))
+                                // tl1552 子项A：向导是主手输路径，保存成功同样记最近链接
+                                //（与 ConnectionViewModel.saveWithTest 的 recordRecent 同款）
+                                RecentLinksStore(context).add(profile.baseUrl)
                                 saved = true
                             }
                         }
