@@ -57,12 +57,13 @@ class RecentLinksMergeTest {
 
     @Test
     fun `自定义上限生效`() {
+        // 列表序=最新在前：a(2) 比 b(1) 新；超限从尾部丢最旧的 b
         val merged = mergeRecentLink(
-            listOf(entry("http://a", 1), entry("http://b", 2)),
+            listOf(entry("http://a", 2), entry("http://b", 1)),
             entry("http://c", 3),
             max = 2,
         )
-        assertEquals(listOf("http://c", "http://b"), merged.map { it.url })
+        assertEquals(listOf("http://c", "http://a"), merged.map { it.url })
     }
 
     @Test
