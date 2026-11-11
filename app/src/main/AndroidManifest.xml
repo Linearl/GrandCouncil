@@ -10,6 +10,10 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- GC-20 扫码配对 -->
     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- tl1552 前台服务保活（会话打开期间防系统杀后台断连） -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- 扫码为可选能力：无相机设备仍可安装（入口按权限/设备能力显隐） -->
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
 
@@ -37,6 +41,17 @@
         <activity
             android:name=".scan.ScannerActivity"
             android:exported="false" />
+
+        <!-- tl1552 前台保活服务：specialUse 类型（长会话挂机无时限；dataSync
+             在 Android 15+ 有 6h/24h 上限，不满足长会话保活场景） -->
+        <service
+            android:name=".connection.SessionKeepAliveService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="远程会话连接保活：SSE 事件流与设备租约心跳需常驻网络，防系统杀后台断连" />
+        </service>
     </application>
 
 </manifest>

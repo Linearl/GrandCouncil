@@ -45,6 +45,7 @@ import com.grandcouncil.remote.ui.config.ConfigScreen
 import com.grandcouncil.remote.ui.demo.DemoChatScreen
 import com.grandcouncil.remote.connection.ConnectionProfile
 import com.grandcouncil.remote.connection.ConnectionStore
+import com.grandcouncil.remote.connection.SessionKeepAliveService
 import com.grandcouncil.remote.model.RemoteSession
 import com.grandcouncil.remote.repository.SessionRepository
 import com.grandcouncil.remote.ui.sessions.AggregatedSession
@@ -99,6 +100,20 @@ fun MainScreen() {
     // 浏览位置持久化：选中会话 / 新建草稿 / 退出会话
     fun rememberPosition(profile: ConnectionProfile?, sessionId: String?) {
         scope.launch { prefs.setLastPosition(profile?.id, sessionId) }
+    }
+
+    // tl1552 前台保活：会话打开期间常驻前台服务（防系统杀后台断连；
+    // SSE 事件流与租约心跳存活于详情 VM，选中态即「连接中」语义）。
+    // 退出会话（选中态清空）或 Activity 结束（MainActivity.onDestroy）时停止。
+    LaunchedEffect(selectedSession != null || draftProfile != null) {
+        if (selectedSession != null || draftProfile != null) {
+            SessionKeepAliveService.start(
+                appContext,
+                selectedSession?.session?.title ?: draftProfile?.name ?: "远程会话",
+            )
+        } else {
+            SessionKeepAliveService.stop(appContext)
+        }
     }
 
     // 自定义抽屉（Material3 ModalNavigationDrawer 的 gesturesEnabled=false 会同时

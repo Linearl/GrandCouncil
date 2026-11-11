@@ -122,6 +122,15 @@ class MainActivity : FragmentActivity() {
             lockState.value = true
         }
     }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        // tl1552：应用真正退出（返回键 finish 等）时停保活前台服务；
+        // 仅退后台（onStop）不停——后台期间靠它保活长连接。
+        if (isFinishing) {
+            com.grandcouncil.remote.connection.SessionKeepAliveService.stop(applicationContext)
+        }
+    }
 }
 
 /** A4 锁屏覆盖：全屏遮罩 + 解锁按钮 */
