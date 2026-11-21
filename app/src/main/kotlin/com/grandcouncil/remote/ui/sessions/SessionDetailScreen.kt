@@ -140,6 +140,8 @@ fun SessionDetailScreen(
     onNewChat: () -> Unit = {},
     /** 任务 540：派生成功后导航进子会话（null=列表尚未刷新，仅提示） */
     onOpenSession: (RemoteSession?) -> Unit = {},
+    /** 任务 702 B⑤：系统分享进入时预填输入框（仅首次组合生效，一次性） */
+    initialInputText: String? = null,
     viewModel: SessionDetailViewModel = viewModel(
         factory = SessionDetailViewModelFactory(
             profile = profile,
@@ -150,7 +152,7 @@ fun SessionDetailScreen(
     ),
 ) {
     val state by viewModel.uiState.collectAsState()
-    var input by remember { mutableStateOf("") }
+    var input by remember { mutableStateOf(initialInputText.orEmpty()) }
     // 思考档位选择底部弹层（文档 §2.4：上拉菜单，滑杆+刻度行）
     var effortSheetOpen by remember { mutableStateOf(false) }
     // 用户输入预览模式（右上角 📋，对标 rikkahub Chat Options）

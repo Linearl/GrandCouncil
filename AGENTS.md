@@ -1,10 +1,18 @@
-<!-- Generated: 2026-08-14 | Updated: 2026-08-14 -->
+<!-- Generated: 2026-08-14 | Updated: 2026-10-06 -->
 
 # GrandCouncil
 
 ## Purpose
 
-**手机端 AI agent 远程控制客户端**（Android / Kotlin / Jetpack Compose）。在手机上远程连接 Reasonix serve（局域网 / 节点小宝 / 花生壳 / Tailscale / frp / 自定义隧道），查看、使用和接管远端 AI 会话。核心架构是「多 agent 适配层」：协议差异隔离在 `app/src/main/kotlin/com/grandcouncil/remote/agent/` 适配器内，UI 按能力字典（Feature）显隐功能入口。
+**Reasonix fork 专属手机客户端**（Android / Kotlin / Jetpack Compose）—— **服务对象是我们的 fork 分支**（`Linearl/DeepSeek-Reasonix`），**不是上游通用生态**（2026-10-06 用户战略定位）。
+
+在手机上远程连接 Reasonix serve（局域网 / 节点小宝 / 花生壳 / Tailscale / frp / 自定义隧道），查看、使用和接管远端 AI 会话。核心架构是「多 agent 适配层」：协议差异隔离在 `app/src/main/kotlin/com/grandcouncil/remote/agent/` 适配器内，UI 按能力字典（Feature）显隐功能入口。
+
+**⚠️ 定位带来的两条授权（2026-10-06 用户战略）**：
+1. **不必考虑上游兼容** —— 无需兼顾上游 DeepSeek-Reasonix 的接口 / 行为 / 降级路径；
+2. **可直接接入 fork 魔改特性** —— 如**项目分组 / 会话分组**等 fork 特有语义（用户点名）；且**优先复用 fork 既有语义**（`__global__` 顶层区、项目树分组等），**不要另造一套**（否则重蹈任务 36 要收敛的「多套机制并存」覆辙）。
+
+**⚠️ 派单纪律（2026-10-06）**：GC 域任务**派子对话修，不派 zcode**（用户指令：「GC 侧的问题你派子对话修吧，不需要拍给 zcode」）。
 
 ## Key Files
 

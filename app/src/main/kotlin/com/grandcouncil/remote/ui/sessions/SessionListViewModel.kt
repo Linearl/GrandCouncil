@@ -67,6 +67,8 @@ data class SessionListUiState(
     /** 本地收藏（标签）：sessionKey（profileId:sessionId）集合 */
     val favorites: Set<String> = emptySet(),
     val density: DensityPreset = DensityPreset.COMFORTABLE,
+    /** 任务 540 路线 B：新建会话选择 workspace（实验开关，默认关；关=「＋ 新建」原行为） */
+    val experimentalNewSession: Boolean = false,
     val loading: Boolean = false,
     /** 手动刷新转圈中（自动刷新静默，不置位） */
     val refreshing: Boolean = false,
@@ -169,6 +171,12 @@ class SessionListViewModel(
         viewModelScope.launch {
             appPreferences.density.collect { density ->
                 _uiState.value = _uiState.value.copy(density = density)
+            }
+        }
+        // 任务 540 路线 B：新建会话 workspace 选择开关（默认关；关=原行为逐字不变）
+        viewModelScope.launch {
+            appPreferences.experimentalGcNewSession.collect { enabled ->
+                _uiState.value = _uiState.value.copy(experimentalNewSession = enabled)
             }
         }
         viewModelScope.launch {
@@ -285,6 +293,43 @@ class SessionListViewModel(
                 refresh()
                 onCreated(target)
             }
+        }
+    }
+
+    /**
+     * 任务 540 路线 B：在选定 workspace 新建会话（zcode 同款「新建会话 + workspace 选择」）。
+     * - 网关连接：POST /p/<projectId>/new（网关 /p/<id>/ 全方法透传，无需 serve 新端点）
+     * - 直连：projectId 传 profile 自带值（null=不经项目前缀，serve 自身即唯一可建 workspace）
+     * 成功后全量刷新，并按 X-Reasonix-Session-Path 在目标 workspace 会话列表中定位新会话：
+     * 定位到 → success(session)；路径缺失或列表未刷新到 → success(null)，UI 落草稿兜底
+     * （会话已建成，稍后在列表可见）；失败 → failure（对话框内提示，可重试）。
+     */
+    fun createSessionInWorkspace(
+        profile: ConnectionProfile,
+        projectId: String?,
+        onDone: (Result<AggregatedSession?>) -> Unit,
+    ) {
+        viewModelScope.launch {
+            val target = profile.copy(projectId = projectId)
+            val created = repository.newSession(target)
+            if (created.isFailure) {
+                onDone(Result.failure(created.exceptionOrNull() ?: IllegalStateException("新建会话失败")))
+                return@launch
+            }
+            val newPath = created.getOrNull()
+            refresh()
+            // 定位：主匹配 = 会话文件全路径；兜底 = 响应头路径末段文件名 ↔ 会话 id（无 .jsonl）
+            val listed = if (projectId != null) {
+                repository.listSessionsForProject(profile, projectId).getOrNull()
+            } else {
+                repository.listSessions(target).getOrNull()
+            }
+            val located = newPath?.let { path ->
+                listed?.firstOrNull {
+                    it.path == path || it.id == path.substringAfterLast('/').removeSuffix(".jsonl")
+                }
+            }?.let { AggregatedSession(it, target, projectId = projectId) }
+            onDone(Result.success(located))
         }
     }
 

@@ -1,8 +1,10 @@
 # GrandCouncil
 
-**手机端 AI agent 远程控制客户端**（Android / Kotlin / Compose）
+**Reasonix fork 专属手机客户端**（Android / Kotlin / Compose）
 
-在手机上远程连接 Reasonix serve，查看和使用远端会话。
+在手机上远程连接 Reasonix serve，查看、使用和接管远端会话。
+
+> **定位（2026-10-06 用户战略）**：GC 服务于**我们的 fork 分支**（`Linearl/DeepSeek-Reasonix`），**不是上游通用客户端** ⇒ **不必考虑上游兼容**，**可以直接接入 fork 魔改特性**（如项目分组 / 会话分组），实现时**优先复用 fork 既有语义**。
 
 **不提供本地推理 / 本地聊天**——必须接入 Reasonix serve 远端才能使用（2026-10-06 用户战略定案）。
 

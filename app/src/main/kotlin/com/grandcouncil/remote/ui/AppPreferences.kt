@@ -36,6 +36,8 @@ class AppPreferences(private val context: Context) {
     private val effortKey = stringPreferencesKey("effort_level")
     // 消息收藏（会话id|消息id → 收藏），重启保留
     private val favoriteMessagesKey = stringSetPreferencesKey("favorite_messages")
+    // 任务 540 路线 B：新建会话时选择 workspace（实验开关，默认关）
+    private val experimentalNewSessionKey = booleanPreferencesKey("experimental_gc_new_session")
 
     val theme: Flow<ThemePreset> = context.appDataStore.data.map { prefs ->
         prefs[themeKey]?.let { runCatching { ThemePreset.valueOf(it) }.getOrNull() }
@@ -80,6 +82,20 @@ class AppPreferences(private val context: Context) {
     /** 消息收藏：key = "会话id|消息id"（文档《消息操作与建议指导》§1.2 收藏） */
     val favoriteMessages: Flow<Set<String>> = context.appDataStore.data.map { prefs ->
         prefs[favoriteMessagesKey] ?: emptySet()
+    }
+
+    /**
+     * 任务 540 路线 B：新建会话选择 workspace（实验开关，默认关）。
+     * 关 = 会话栏「＋ 新建」保持原行为（逐字不变）；开 = 新建先选设备与 workspace
+     * 再创建（zcode 同款）。开关落 App 本地而非 serve 端：serve /capabilities
+     * 静态清单无 new-session 宣告（capabilities.go 已核实），服务端闸不可行。
+     */
+    val experimentalGcNewSession: Flow<Boolean> = context.appDataStore.data.map { prefs ->
+        prefs[experimentalNewSessionKey] ?: false
+    }
+
+    suspend fun setExperimentalGcNewSession(enabled: Boolean) {
+        context.appDataStore.edit { it[experimentalNewSessionKey] = enabled }
     }
 
     suspend fun toggleFavoriteMessage(key: String, favorite: Boolean) {

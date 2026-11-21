@@ -31,12 +31,30 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- 任务 702 B⑤：系统分享接收——外部文本分享进 GC 新建会话（草稿预填） -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
         </activity>
 
         <!-- GC-20 扫码配对：扫连接二维码 → 回传 http(s) 地址给连接表单 -->
         <activity
             android:name=".scan.ScannerActivity"
             android:exported="false" />
+
+        <!-- 任务 702 B④：桌面 Widget——会话状态概览（设备/会话/运行中），点按打开 App -->
+        <receiver
+            android:name=".widget.SessionSummaryWidgetProvider"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/session_summary_widget_info" />
+        </receiver>
     </application>
 
 </manifest>

@@ -4,6 +4,7 @@ import android.content.Context
 import com.grandcouncil.remote.api.SseClient
 import com.grandcouncil.remote.connection.ConnectionProfile
 import com.grandcouncil.remote.connection.ConnectionStore
+import com.grandcouncil.remote.repository.LeasePolicy
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -51,7 +52,8 @@ object NotificationMonitor {
     private suspend fun watchProfile(context: Context, profile: ConnectionProfile) {
         val client = SseClient.forProfile(profile)
         var attempts = 0
-        while (attempts < 3) { // 后台监听最多重连 3 次，避免无限耗电
+        // 702 A②：尝试上限与退避节奏收口 LeasePolicy（5s*n，最多 3 次，避免无限耗电）
+        while (attempts < LeasePolicy.MAX_RECONNECT_ATTEMPTS) {
             try {
                 client.events(SseClient.eventsUrl(profile)).collect { ev ->
                     attempts = 0
@@ -59,7 +61,7 @@ object NotificationMonitor {
                 }
             } catch (t: Throwable) {
                 attempts++
-                if (attempts >= 3) {
+                if (attempts >= LeasePolicy.MAX_RECONNECT_ATTEMPTS) {
                     AppNotifications.notify(
                         context,
                         NotifyType.CONNECTION,
@@ -68,47 +70,21 @@ object NotificationMonitor {
                         dedupeKey = "conn-${profile.id}",
                     )
                 }
-                delay(5_000L * attempts)
+                delay(LeasePolicy.reconnectBackoffMs(attempts))
             }
         }
     }
 
     private fun handleEvent(context: Context, profile: ConnectionProfile, ev: com.grandcouncil.remote.api.dto.ServeEventDto) {
-        when (ev.kind) {
-            "approval_request" -> AppNotifications.notify(
-                context, NotifyType.APPROVAL,
-                "🛡 Agent 需要审批",
-                "${profile.name}：${ev.approval?.tool ?: "工具"} 请求权限（${ev.approval?.id?.take(8) ?: ""}）",
-                dedupeKey = "appr-${ev.approval?.id}",
-                sessionName = profile.name,
-            )
-            "ask_request" -> AppNotifications.notify(
-                context, NotifyType.QUESTION,
-                "❓ Agent 需要回答",
-                "${profile.name}：${ev.text?.takeIf { it.isNotBlank() } ?: "请回答一个问题"}",
-                dedupeKey = "ask-${ev.approval?.id ?: ev.text?.take(12)}",
-                sessionName = profile.name,
-            )
-            "turn_done" -> {
-                if (ev.outcome == "error") {
-                    AppNotifications.notify(
-                        context, NotifyType.ERROR,
-                        "⚠️ 任务出错",
-                        "${profile.name}：回合以错误结束",
-                        dedupeKey = "err-${System.currentTimeMillis() / 10_000}",
-                        sessionName = profile.name,
-                    )
-                } else {
-                    AppNotifications.notify(
-                        context, NotifyType.COMPLETED,
-                        "✅ 任务完成",
-                        "${profile.name}：agent 已完成回合",
-                        dedupeKey = "done-${System.currentTimeMillis() / 10_000}",
-                        sessionName = profile.name,
-                    )
-                }
-            }
-            else -> Unit
-        }
+        // 任务 702 A①：映射逻辑抽至 EventNotificationMapper（纯函数可单测），此处只负责发送
+        val n = EventNotificationMapper.map(profile.name, ev) ?: return
+        AppNotifications.notify(
+            context,
+            n.type,
+            n.title,
+            n.body,
+            dedupeKey = n.dedupeKey,
+            sessionName = n.sessionName,
+        )
     }
 }
