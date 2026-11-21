@@ -475,7 +475,7 @@ class SessionDetailViewModel(
         // 任务 538：发送建立在设备级所有权之上——快照非持有（或进入会话未接管）
         // 时不发送，回填输入并明确引导接管。UI 层已有 readOnly + takeoverThenSend
         // 显式路径，这里是会话快照陈旧（如租约过期）时的兜底。
-        if (session?.heldBy != HeldBy.ME) {
+        if (!canSendBySnapshot(session?.heldBy)) {
             _uiState.value = _uiState.value.copy(
                 restoreInput = raw,
                 error = "本设备未持有所有权，点「接管」获取所有权后再发送",
@@ -552,7 +552,7 @@ class SessionDetailViewModel(
                 // 失败：移除乐观消息 + 恢复输入框文本（UI 收到 restoreInput 后回填）
                 _uiState.value = _uiState.value.copy(
                     messages = _uiState.value.messages.filterNot { it.id == userMsg.id },
-                    error = "发送失败：${e.message ?: "未知错误"}",
+                    error = sendFailureMessage(e),
                     restoreInput = raw,
                 )
             }

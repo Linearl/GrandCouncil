@@ -1,5 +1,6 @@
 package com.grandcouncil.remote.api
 
+import com.grandcouncil.remote.DeviceIdentity
 import com.grandcouncil.remote.connection.AuthMode
 import com.grandcouncil.remote.connection.ConnectionProfile
 import kotlinx.serialization.json.Json
@@ -22,8 +23,15 @@ import java.util.concurrent.TimeUnit
  *
  * CSRF：state-changing 请求必须带 application/json Content-Type，
  * 由 asConverterFactory + Retrofit @Body 保证。
+ *
+ * tl538/tl1532：所有请求带 X-Reasonix-Device-Id 设备身份头——serve 端
+ * submit 守卫（serve.go deviceIdentityExempt）据此豁免持有者自己的请求，
+ * 不带头的客户端（pre-tl1532）在自家持有租约时也会被 409 自拦。
  */
 object HttpClientFactory {
+
+    /** tl538：设备身份头名（serve 侧 session_fence.go deviceIDHeader 同名） */
+    const val DEVICE_ID_HEADER = "X-Reasonix-Device-Id"
 
     /** 进程级共享 cookie 存储（按 host 隔离，多连接互不串扰） */
     private val sharedCookieJar = SessionCookieJar()
@@ -34,6 +42,15 @@ object HttpClientFactory {
             .readTimeout(profile.timeoutMs, TimeUnit.MILLISECONDS)
             .writeTimeout(profile.timeoutMs, TimeUnit.MILLISECONDS)
             .cookieJar(sharedCookieJar)
+
+        // tl538：请求级设备身份注入（每请求取值，头值稳定由 DeviceIdentity 缓存保证）
+        builder.addInterceptor { chain ->
+            chain.proceed(
+                chain.request().newBuilder()
+                    .header(DEVICE_ID_HEADER, DeviceIdentity.id())
+                    .build(),
+            )
+        }
 
         if (profile.authMode == AuthMode.TOKEN && profile.token.isNotBlank()) {
             builder.addInterceptor { chain ->
