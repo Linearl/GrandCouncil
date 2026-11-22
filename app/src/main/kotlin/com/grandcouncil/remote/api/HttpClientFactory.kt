@@ -55,10 +55,16 @@ object HttpClientFactory {
         if (profile.authMode == AuthMode.TOKEN && profile.token.isNotBlank()) {
             builder.addInterceptor { chain ->
                 val request = chain.request()
-                val url = request.url.newBuilder()
-                    .addQueryParameter("token", profile.token)
-                    .build()
-                chain.proceed(request.newBuilder().url(url).build())
+                // tl1539②：注入幂等——URL 已带 token（如 tunnel 地址手填/扫码回填
+                // 的 ?token=）不再追加，防双 token 重复参数
+                if (request.url.queryParameter("token") != null) {
+                    chain.proceed(request)
+                } else {
+                    val url = request.url.newBuilder()
+                        .addQueryParameter("token", profile.token)
+                        .build()
+                    chain.proceed(request.newBuilder().url(url).build())
+                }
             }
         }
         if (profile.authMode == AuthMode.PASSWORD && profile.password.isNotBlank()) {

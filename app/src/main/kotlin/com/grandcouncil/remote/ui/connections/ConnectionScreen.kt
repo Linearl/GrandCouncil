@@ -58,6 +58,7 @@ import com.grandcouncil.remote.connection.ConnectionStore
 import com.grandcouncil.remote.connection.ConnectionTester
 import com.grandcouncil.remote.connection.RecentLinksStore
 import com.grandcouncil.remote.scan.ScannerActivity
+import com.grandcouncil.remote.scan.splitScannedUrl
 import kotlinx.coroutines.launch
 
 /**
@@ -243,12 +244,20 @@ private fun ProfileEditorDialog(
     var authMode by remember { mutableStateOf(initial?.authMode ?: com.grandcouncil.remote.connection.AuthMode.NONE) }
     var agentMenuOpen by remember { mutableStateOf(false) }
     var authMenuOpen by remember { mutableStateOf(false) }
-    // GC-20：扫码配对 launcher（扫到 http(s) 地址回填 Base URL）
+    // GC-20：扫码配对 launcher（扫到 http(s) 地址回填；tl1539②：query 拆两字段——
+    // Base URL 只收干净地址，token 拆进 token 字段并切 TOKEN 模式）
     val scanLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
     ) { result ->
         val url = result.data?.getStringExtra(ScannerActivity.EXTRA_URL)
-        if (!url.isNullOrBlank()) baseUrl = url
+        if (!url.isNullOrBlank()) {
+            val (clean, scannedToken) = splitScannedUrl(url)
+            baseUrl = clean
+            if (scannedToken != null) {
+                token = scannedToken
+                authMode = com.grandcouncil.remote.connection.AuthMode.TOKEN
+            }
+        }
     }
     // GC-20：最近链接（新建时显示，点击复用；私有存储最多 5 条）
     val editorContext = LocalContext.current
