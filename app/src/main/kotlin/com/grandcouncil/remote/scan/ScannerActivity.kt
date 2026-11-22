@@ -64,6 +64,33 @@ class ScannerActivity : ComponentActivity() {
                         finish()
                     },
                     onClose = { finish() },
+                    onGalleryImage = { uri ->
+                        // tl1539 简化：相册选图静态识别——识别成功回传，失败提示继续
+                        runCatching {
+                            val image = InputImage.fromFilePath(this@ScannerActivity, uri)
+                            val scanner = BarcodeScanning.getClient(
+                                BarcodeScannerOptions.Builder()
+                                    .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
+                                    .build(),
+                            )
+                            scanner.process(image)
+                                .addOnSuccessListener { barcodes ->
+                                    val url = barcodes.firstOrNull { it.valueType == Barcode.TYPE_URL }?.url?.url
+                                        ?: barcodes.firstOrNull()?.rawValue
+                                    if (url != null && isValidPairUrl(url)) {
+                                        setResult(Activity.RESULT_OK, Intent().putExtra(EXTRA_URL, url.trim()))
+                                        finish()
+                                    } else {
+                                        Toast.makeText(this, "图片中未找到有效连接二维码", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                                .addOnFailureListener {
+                                    Toast.makeText(this, "图片识别失败，请换一张含二维码的图", Toast.LENGTH_SHORT).show()
+                                }
+                        }.onFailure {
+                            Toast.makeText(this, "图片读取失败", Toast.LENGTH_SHORT).show()
+                        }
+                    },
                 )
             }
         }
@@ -85,6 +112,7 @@ fun isValidPairUrl(raw: String): Boolean {
 private fun ScannerScreen(
     onResult: (String) -> Unit,
     onClose: () -> Unit,
+    onGalleryImage: (Uri) -> Unit,
 ) {
     val context = LocalContext.current
     var permissionGranted by remember { mutableStateOf(false) }
@@ -92,6 +120,10 @@ private fun ScannerScreen(
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted -> permissionGranted = granted }
+    // tl1539 简化：相册选图入口（与相机扫码二选一）
+    val galleryLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent(),
+    ) { uri -> uri?.let(onGalleryImage) }
 
     LaunchedEffect(Unit) {
         val granted = ContextCompat.checkSelfPermission(
@@ -151,6 +183,13 @@ private fun ScannerScreen(
             modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
         ) {
             Text("关闭", color = Color.White)
+        }
+        // tl1539 简化：相册选图（顶部左侧）
+        TextButton(
+            onClick = { galleryLauncher.launch("image/*") },
+            modifier = Modifier.align(Alignment.TopStart).padding(8.dp),
+        ) {
+            Text("🖼 相册", color = Color.White)
         }
     }
 }

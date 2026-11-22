@@ -58,6 +58,7 @@ import com.grandcouncil.remote.connection.ConnectionStore
 import com.grandcouncil.remote.connection.ConnectionTester
 import com.grandcouncil.remote.connection.RecentLinksStore
 import com.grandcouncil.remote.scan.ScannerActivity
+import com.grandcouncil.remote.scan.isValidPairUrl
 import com.grandcouncil.remote.scan.splitScannedUrl
 import kotlinx.coroutines.launch
 
@@ -236,14 +237,11 @@ private fun ProfileEditorDialog(
     var name by remember { mutableStateOf(initial?.name ?: "") }
     var baseUrl by remember { mutableStateOf(initial?.baseUrl ?: "") }
     var token by remember { mutableStateOf(initial?.token ?: "") }
-    var password by remember { mutableStateOf(initial?.password ?: "") }
     var timeout by remember { mutableStateOf((initial?.timeoutMs ?: 10_000L).toString()) }
     var agentType by remember { mutableStateOf(initial?.agentType ?: com.grandcouncil.remote.model.AgentType.REASONIX) }
     var connectionType by remember { mutableStateOf<com.grandcouncil.remote.connection.ConnectionType?>(initial?.type) }
     var projectId by remember { mutableStateOf(initial?.projectId ?: "") }
-    var authMode by remember { mutableStateOf(initial?.authMode ?: com.grandcouncil.remote.connection.AuthMode.NONE) }
-    var agentMenuOpen by remember { mutableStateOf(false) }
-    var authMenuOpen by remember { mutableStateOf(false) }
+    // tl1539 简化：认证固定 TOKEN（不再提供无 token/密码方式），authMode 选择器与密码框移除
     // GC-20：扫码配对 launcher（扫到 http(s) 地址回填；tl1539②：query 拆两字段——
     // Base URL 只收干净地址，token 拆进 token 字段并切 TOKEN 模式）
     val scanLauncher = rememberLauncherForActivityResult(
@@ -255,7 +253,6 @@ private fun ProfileEditorDialog(
             baseUrl = clean
             if (scannedToken != null) {
                 token = scannedToken
-                authMode = com.grandcouncil.remote.connection.AuthMode.TOKEN
             }
         }
     }
@@ -268,55 +265,61 @@ private fun ProfileEditorDialog(
         title = { Text(if (initial == null) stringResource(R.string.connections_add) else "编辑连接") },
         text = {
             Column {
+                // tl1539 简化：接入方式科普——本质都是「地址+访问令牌」两样，三种填法殊途同归
+                Text(
+                    "接入方式说明：所有方式本质都是填「地址 + 访问令牌」两样。\n" +
+                        "· 手动输入：电脑端运行 reasonix serve 后，把地址和令牌填入下方\n" +
+                        "· 扫码：电脑端「设置 → 本地服务」展示连接二维码，扫码可拍照或从相册选图\n" +
+                        "· 剪贴板：电脑端点「复制连接」，再点下方剪贴板按钮自动填入\n" +
+                        "（令牌与二维码均在电脑端 reasonix 桌面版「设置 → 本地服务」中获取）",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 8.dp),
+                )
                 OutlinedField(stringResource(R.string.field_name), name) { name = it }
-                // agent 类型（向导第一步选 agent）
-                DropdownField(
-                    label = stringResource(R.string.field_agent_type),
-                    value = agentType.label,
-                    expanded = agentMenuOpen,
-                    onToggle = { agentMenuOpen = !agentMenuOpen },
-                ) {
-                    com.grandcouncil.remote.model.AgentType.entries.forEach { option ->
-                        DropdownMenuItem(
-                            text = { Text(option.label) },
-                            onClick = {
-                                agentType = option
-                                agentMenuOpen = false
-                            },
-                        )
-                    }
-                }
+                // 核心两框（tl1539 简化：只此两样必填）
                 OutlinedField(stringResource(R.string.field_base_url), baseUrl) { baseUrl = it }
-                // 网关项目路由（tl964 G3：从高级提为一等字段；空 = 直连单实例）
-                OutlinedField("项目（servepool 网关多项目时，可选）", projectId) { projectId = it }
-                // 认证方式
-                DropdownField(
-                    label = stringResource(R.string.field_auth_mode),
-                    value = authMode.label,
-                    expanded = authMenuOpen,
-                    onToggle = { authMenuOpen = !authMenuOpen },
+                OutlinedField(stringResource(R.string.field_token), token) { token = it }
+                // 三入口：剪贴板解析 / 扫码（扫码页内含相册选图）
+                val entryScope = rememberCoroutineScope()
+                val entryContext = LocalContext.current
+                val entryClipboard = LocalClipboardManager.current
+                Row(
+                    Modifier.fillMaxWidth().padding(top = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    com.grandcouncil.remote.connection.AuthMode.entries.forEach { option ->
-                        DropdownMenuItem(
-                            text = { Text(option.label) },
-                            onClick = {
-                                authMode = option
-                                authMenuOpen = false
-                            },
-                        )
+                    Text(
+                        "快速填入：",
+                        style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(onClick = {
+                        entryScope.launch {
+                            val text = entryClipboard.getText()?.toString()?.trim() ?: ""
+                            val (clean, scanned) = splitScannedUrl(text)
+                            if (text.isNotEmpty() && isValidPairUrl(clean)) {
+                                baseUrl = clean
+                                if (scanned != null) token = scanned
+                                android.widget.Toast.makeText(entryContext, "已从剪贴板填入地址与令牌", android.widget.Toast.LENGTH_SHORT).show()
+                            } else {
+                                android.widget.Toast.makeText(entryContext, "剪贴板无有效连接（先在电脑端点「复制连接」）", android.widget.Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }) {
+                        Text("📋 剪贴板", style = MaterialTheme.typography.labelMedium)
+                    }
+                    TextButton(onClick = {
+                        scanLauncher.launch(Intent(entryContext, ScannerActivity::class.java))
+                    }) {
+                        Text("📷 扫码", style = MaterialTheme.typography.labelMedium)
                     }
                 }
-                if (authMode == com.grandcouncil.remote.connection.AuthMode.TOKEN) {
-                    OutlinedField(stringResource(R.string.field_token), token) { token = it }
-                }
-                if (authMode == com.grandcouncil.remote.connection.AuthMode.PASSWORD) {
-                    OutlinedField(stringResource(R.string.field_password), password) { password = it }
-                }
+                // 高级可选项（网关/超时）——普通直连无需动；agent 类型固定 REASONIX 不再暴露
+                OutlinedField("项目（servepool 网关多项目时，可选）", projectId) { projectId = it }
                 OutlinedField(stringResource(R.string.field_timeout), timeout) { timeout = it }
                 // C2 宿主侧命令：按表单值生成 serve 启动命令（端口取 baseUrl，默认 18789）
                 val port = Regex(":(\\d+)").find(baseUrl)?.groupValues?.get(1) ?: "18789"
-                val cmd = "reasonix serve --addr 0.0.0.0:$port" +
-                    (if (authMode == com.grandcouncil.remote.connection.AuthMode.NONE) "" else " --auth ${authMode.name.lowercase()}")
+                val cmd = "reasonix serve --addr 0.0.0.0:$port --auth token"
                 var copied by remember { mutableStateOf(false) }
                 val clipboard = LocalClipboardManager.current
                 val scope = rememberCoroutineScope()
@@ -340,23 +343,6 @@ private fun ProfileEditorDialog(
                         }) {
                             Text(if (copied) "已复制 ✓" else "复制命令")
                         }
-                    }
-                }
-                // 快捷填充（tl964 G1：预设不是准入门槛，不选也能保存任意合法地址；
-                //  点芯片 = 填模板地址 + 展示对应帮助文案）；GC-20 加扫码入口
-                Row(
-                    Modifier.fillMaxWidth().padding(top = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        "快捷填充（可选）：",
-                        style = MaterialTheme.typography.labelMedium,
-                        modifier = Modifier.weight(1f),
-                    )
-                    TextButton(onClick = {
-                        scanLauncher.launch(Intent(editorContext, ScannerActivity::class.java))
-                    }) {
-                        Text("📷 扫码", style = MaterialTheme.typography.labelMedium)
                     }
                 }
                 // GC-20 最近链接（仅新建时展示，点击复用）
@@ -427,15 +413,16 @@ private fun ProfileEditorDialog(
                             agentType = agentType,
                             type = connectionType,
                             baseUrl = baseUrl,
-                            authMode = authMode,
+                            authMode = com.grandcouncil.remote.connection.AuthMode.TOKEN,
                             projectId = projectId.trim().ifBlank { null },
-                            token = token,
-                            password = password,
+                            token = token.trim(),
+                            password = "",
                             timeoutMs = timeout.toLongOrNull() ?: 10_000L,
                         )
                     )
                 },
-                enabled = baseUrl.isNotBlank() && !saving,
+                // tl1539 简化：地址与令牌都非空才可保存（不再允许无 token 认证）
+                enabled = baseUrl.isNotBlank() && token.isNotBlank() && !saving,
             ) { Text(if (saving) "测试中…" else stringResource(R.string.connections_save)) }
         },
         dismissButton = {
