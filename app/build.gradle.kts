@@ -12,8 +12,8 @@ android {
         applicationId = "com.grandcouncil.remote"
         minSdk = 26
         targetSdk = 37
-        versionCode = 3
-        versionName = "0.1.02"
+        versionCode = 4
+        versionName = "0.1.03"
     }
 
     // 统一 release 签名：本地与 CI 共用一把 key，避免不同签名覆盖安装被拦截。
