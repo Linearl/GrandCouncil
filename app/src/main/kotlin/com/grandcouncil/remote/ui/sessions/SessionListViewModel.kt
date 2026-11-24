@@ -51,6 +51,9 @@ data class SessionListUiState(
     val sessionsByProject: Map<String, List<RemoteSession>> = emptyMap(),
     /** "profileId:projectId" → 该项目会话加载失败信息（与「确实无会话」区分） */
     val projectErrors: Map<String, String> = emptyMap(),
+    /** zcode 20261125 新发现②：展开拉取期间的 loading key 集合（"profileId:projectId"），
+     *  Set 而非单值——多项目并发拉取互不覆盖（A 加载中点 B，两者的标记共存） */
+    val sessionsLoading: Set<String> = emptySet(),
     /** 当前展开的项目（懒加载目标）："profileId:projectId"，null=未展开 */
     val expandedProject: String? = null,
     /** profileId → 会话列表（兼容旧 view；保留用于已加载数据） */
@@ -440,18 +443,23 @@ class SessionListViewModel(
             return
         }
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(expandedProject = key)
+            _uiState.value = _uiState.value.copy(
+                expandedProject = key,
+                sessionsLoading = _uiState.value.sessionsLoading + key,
+            )
             repository.listSessionsForProject(profile, projectId)
                 .onSuccess { sessions ->
                     _uiState.value = _uiState.value.copy(
                         sessionsByProject = _uiState.value.sessionsByProject + (key to sessions),
                         projectErrors = _uiState.value.projectErrors - key,
+                        sessionsLoading = _uiState.value.sessionsLoading - key,
                     )
                 }
                 .onFailure { e ->
                     // 失败 ≠ 无会话：记录到 projectErrors，UI 区分显示「加载失败」与「暂无会话」
                     _uiState.value = _uiState.value.copy(
                         projectErrors = _uiState.value.projectErrors + (key to (e.message ?: "加载会话失败")),
+                        sessionsLoading = _uiState.value.sessionsLoading - key,
                     )
                 }
         }

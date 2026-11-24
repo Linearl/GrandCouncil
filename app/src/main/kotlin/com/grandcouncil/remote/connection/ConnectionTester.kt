@@ -258,9 +258,18 @@ class ConnectionTester(
         // 探测失败：区分「旧 serve 无此路由」与其他异常，均降级为 warn（success=true）
         val httpCode = (result.exceptionOrNull() as? HttpException)?.code()
         return if (httpCode == 404 || httpCode == 405) {
+            // zcode 20261125 新发现①：网关根（projectId 空）上 /capabilities 也是 404——
+            // 文案分流，避免把「连到 servepool 网关根」误报成「旧版 serve」。
+            // （不引导「填项目 ID 可探测」——实测网关对 /p/<id>/capabilities 返 501，未代理该端点）
+            val msg = if (profile.projectId.isNullOrBlank()) {
+                "服务端未提供能力宣告（旧版 serve，或当前连的是 servepool 网关根）——" +
+                    "新增能力入口将隐藏，既有功能不受影响"
+            } else {
+                "服务端未提供能力宣告（旧版 serve）——新增能力入口将隐藏，既有功能不受影响"
+            }
             TestResult(
                 Step.Capabilities, true,
-                "服务端未提供能力宣告（旧版 serve）——新增能力入口将隐藏，既有功能不受影响",
+                msg,
                 warn = true,
             )
         } else {

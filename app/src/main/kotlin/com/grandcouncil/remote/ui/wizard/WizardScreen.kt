@@ -65,7 +65,9 @@ fun WizardScreen(modifier: Modifier = Modifier, onDone: () -> Unit = {}) {
     var step by remember { mutableIntStateOf(1) }
     var connectionType by remember { mutableStateOf(ConnectionType.LAN) }
     var baseUrl by remember { mutableStateOf("") }
-    var authMode by remember { mutableStateOf(AuthMode.TOKEN) }
+    // GC-04 修：认证固定 TOKEN（用户 20261122 口径「不再允许无 token 认证」，与编辑器统一）——
+    // 向导不再提供认证方式选择，authMode 不可变
+    val authMode = AuthMode.TOKEN
     var token by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var testing by remember { mutableStateOf(false) }
@@ -105,9 +107,8 @@ fun WizardScreen(modifier: Modifier = Modifier, onDone: () -> Unit = {}) {
             when (step) {
                 1 -> StepConnectionType(connectionType) { connectionType = it }
                 2 -> StepUrl(
-                    connectionType, baseUrl, authMode,
+                    connectionType, baseUrl,
                     onUrl = { baseUrl = it },
-                    onAuth = { authMode = it },
                 )
                 3 -> StepCommand(
                     connectionType, authMode,
@@ -153,7 +154,9 @@ fun WizardScreen(modifier: Modifier = Modifier, onDone: () -> Unit = {}) {
                 if (step < 4) {
                     Button(
                         onClick = { step++ },
-                        enabled = step != 2 || baseUrl.isNotBlank(),
+                        // GC-04：第 2 步地址非空、第 3 步 token 非空才可继续（禁无 token）
+                        enabled = (step != 2 || baseUrl.isNotBlank()) &&
+                            (step != 3 || token.isNotBlank()),
                     ) { Text("下一步") }
                 }
             }
@@ -229,9 +232,7 @@ private fun StepConnectionType(
 private fun StepUrl(
     type: ConnectionType,
     baseUrl: String,
-    authMode: AuthMode,
     onUrl: (String) -> Unit,
-    onAuth: (AuthMode) -> Unit,
 ) {
     Text("填写地址与认证", style = MaterialTheme.typography.titleLarge)
     Text(
@@ -247,24 +248,13 @@ private fun StepUrl(
         singleLine = true,
         modifier = Modifier.fillMaxWidth(),
     )
-    HorizontalDivider(Modifier.padding(vertical = 12.dp))
-    Text("认证方式", style = MaterialTheme.typography.titleSmall)
-    AuthMode.entries.forEach { mode ->
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .selectable(selected = authMode == mode, onClick = { onAuth(mode) })
-                .padding(vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(mode.label, modifier = Modifier.weight(1f))
-            Text(
-                if (authMode == mode) "●" else "○",
-                color = if (authMode == mode) MaterialTheme.colorScheme.primary
-                else MaterialTheme.colorScheme.outline,
-            )
-        }
-    }
+    // GC-04 修：认证方式选择器已删（固定 TOKEN，令牌在下一步填写）
+    Text(
+        "认证方式：令牌（在下一步粘贴）",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(top = 12.dp),
+    )
 }
 
 @Composable

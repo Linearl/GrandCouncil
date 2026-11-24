@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -180,14 +181,16 @@ private fun ScannerScreen(
         )
         TextButton(
             onClick = onClose,
-            modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
+            // tl1539 修：状态栏吞触摸（targetSdk 37 强制 edge-to-edge，按钮原贴顶 y22-148
+            // 被 128px 状态栏盖住）——加 statusBarsPadding 避让，预览仍全屏铺底
+            modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(8.dp),
         ) {
             Text("关闭", color = Color.White)
         }
         // tl1539 简化：相册选图（顶部左侧）
         TextButton(
             onClick = { galleryLauncher.launch("image/*") },
-            modifier = Modifier.align(Alignment.TopStart).padding(8.dp),
+            modifier = Modifier.align(Alignment.TopStart).statusBarsPadding().padding(8.dp),
         ) {
             Text("🖼 相册", color = Color.White)
         }

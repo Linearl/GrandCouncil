@@ -774,12 +774,23 @@ private fun DeviceProjectList(
                         if (expanded) {
                             val keySessions = state.sessionsByProject[key].orEmpty()
                             val loadError = projectErrors[key]
+                            val isLoading = key in state.sessionsLoading
                             if (loadError != null) {
                                 item(key = "sess-error-${key}") {
                                     Text(
                                         "⚠ 加载会话失败：$loadError",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 6.dp),
+                                    )
+                                }
+                            } else if (isLoading) {
+                                // zcode 20261125 新发现②：拉取期间给反馈，避免展开后纯空白
+                                item(key = "sess-loading-${key}") {
+                                    Text(
+                                        "加载会话中…",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         modifier = Modifier.padding(horizontal = 24.dp, vertical = 6.dp),
                                     )
                                 }
