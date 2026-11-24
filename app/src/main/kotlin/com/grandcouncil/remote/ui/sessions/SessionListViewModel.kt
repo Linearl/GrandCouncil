@@ -437,8 +437,10 @@ class SessionListViewModel(
     fun loadProjectSessions(profileId: String, projectId: String) {
         val profile = _uiState.value.profiles.firstOrNull { it.id == profileId } ?: return
         val key = "$profileId:$projectId"
-        if (_uiState.value.sessionsByProject.containsKey(key)) {
-            // 已加载过；切换展开目标即可
+        if (_uiState.value.sessionsByProject.containsKey(key) ||
+            key in _uiState.value.sessionsLoading
+        ) {
+            // 已加载过或请求在飞；切换展开目标即可（GC-07：在飞时不再重发同一请求）
             _uiState.value = _uiState.value.copy(expandedProject = key)
             return
         }

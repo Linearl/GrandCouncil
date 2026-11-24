@@ -69,7 +69,7 @@ fun WizardScreen(modifier: Modifier = Modifier, onDone: () -> Unit = {}) {
     // 向导不再提供认证方式选择，authMode 不可变
     val authMode = AuthMode.TOKEN
     var token by remember { mutableStateOf("") }
-    var password by remember { mutableStateOf("") }
+    // GC-06 清理：password 变量已删（authMode 恒 TOKEN，密码认证链为不可达死代码）
     var testing by remember { mutableStateOf(false) }
     var testResults by remember { mutableStateOf<List<ConnectionTester.TestResult>>(emptyList()) }
     var saved by remember { mutableStateOf(false) }
@@ -112,14 +112,13 @@ fun WizardScreen(modifier: Modifier = Modifier, onDone: () -> Unit = {}) {
                 )
                 3 -> StepCommand(
                     connectionType, authMode,
-                    token, password,
+                    token,
                     onToken = { token = it },
-                    onPassword = { password = it },
                 )
                 4 -> StepTest(
                     testing, testResults, saved,
                     onTest = {
-                        val profile = draftProfile(connectionType, baseUrl, authMode, token, password)
+                        val profile = draftProfile(connectionType, baseUrl, authMode, token)
                         testing = true
                         testResults = emptyList()
                         scope.launch {
@@ -169,7 +168,6 @@ private fun draftProfile(
     baseUrl: String,
     auth: AuthMode,
     token: String,
-    password: String,
 ) = ConnectionProfile(
     id = ConnectionProfile.newId(),
     name = baseUrl,
@@ -178,7 +176,7 @@ private fun draftProfile(
     baseUrl = baseUrl,
     authMode = auth,
     token = token,
-    password = password,
+    password = "",
 )
 
 @Composable
@@ -262,9 +260,7 @@ private fun StepCommand(
     type: ConnectionType,
     authMode: AuthMode,
     token: String,
-    password: String,
     onToken: (String) -> Unit,
-    onPassword: (String) -> Unit,
 ) {
     Text("在桌面版开启远程网关", style = MaterialTheme.typography.titleLarge)
     Text(
@@ -292,15 +288,7 @@ private fun StepCommand(
             modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
         )
     }
-    if (authMode == AuthMode.PASSWORD) {
-        OutlinedTextField(
-            value = password,
-            onValueChange = onPassword,
-            label = { Text("serve 密码") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
-        )
-    }
+    // GC-06 清理：密码认证输入框分支已删（authMode 恒 TOKEN，不可达）
     HorizontalDivider(Modifier.padding(vertical = 12.dp))
     Text(
         ConnectionGuide.RECOMMENDATION,
