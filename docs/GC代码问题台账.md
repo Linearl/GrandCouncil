@@ -26,7 +26,7 @@
 | GC-02 | ✅ 已修 | 展开项目拉会话期间无任何加载反馈 | 中 | `ui/sessions/SessionListViewModel.kt:56`、`:446` |
 | GC-03 | ✅ 已修 | 「能力探测 △（旧版 serve）」文案误导 | 低 | `connection/ConnectionTester.kt:261-270` |
 | GC-04 | ✅ 已修 | 向导可保存无 token 连接，与编辑器「禁无 token」不一致 | 中（安全口径不一致） | `ui/wizard/WizardScreen.kt:68`、`:296-313`、`:129` |
-| GC-05 | 🔵 观察 | 会话请求超时后是否显示「加载失败」未获实测证实 | 未知 | `api/HttpClientFactory.kt:41-43` |
+| GC-05 | ✅ 已验证 | 会话请求超时后是否显示「加载失败」 | 未知→已定案 | 受控实验：45s readTimeout 生效，t+48s 出失败提示 |
 | GC-06 | ✅ 已修 | 向导里残留不可达的密码认证代码 | 低（死代码） | `ui/wizard/WizardScreen.kt`（password 链已全删） |
 | GC-07 | ✅ 已修 | 同一项目加载期间反复点开会重复发请求 | 低（代码推演，未实测） | `ui/sessions/SessionListViewModel.kt:440`（加在飞判断） |
 | GC-08 | 🟡 待定 | 向导第 3 步按 BACK 直接退到桌面，填一半内容丢失（编辑器 dialog 无此问题） | 低（体验，待口径） | `ui/wizard/WizardScreen.kt`（全屏 Activity 无 BACK 拦截） |
@@ -174,9 +174,16 @@
 
 ## GC-05 会话请求超时后的表现未获实测证实
 
-**状态**：🔵 观察　**发现**：2026-11-25
+**状态**：✅ 已验证（2026-11-25 10:5x 受控实验定案：**完全不回态下 45s readTimeout 生效，失败提示正常显示**）　**发现**：2026-11-25
 
-**说明**：这一条记录的是一个**没有查清**的点，不是已确认的缺陷。
+**受控实验**（GC 专员，慢响应代理 `tmp/gc05_slow_proxy.py`：本地 18999→18789，对 GET `/sessions` 完全不回、其余转发）：
+
+- 环境：模拟器 grandcouncil_avd + v0.1.03 CI 包，连接 `http://10.0.2.2:18999`，代理日志确认 `/p/SillyTavern/sessions → HANG`
+- **计时复测**：点开项目 t+16s 未出、t+32s 未出、**t+48s 出现「⚠ 加载会话失败：timeout」**——与 45s readTimeout 吻合（32~48s 窗口内触发）
+- 结论：**readTimeout 生效、onFailure→projectErrors→UI 失败提示链路完整**；凌晨观察的「3 分钟无失败提示」在受控环境下不复现（当时实验对象不确定）
+- 未覆盖第二态（周期字节致 readTimeout 不触发）：真实 serve 对 /sessions 无 partial 响应行为，属理论边缘，不追加 callTimeout
+
+**原观察记录（保留供参考）**：
 
 **已知**（代码事实）：
 - `SessionRepository.kt:43-47` `listSessionsForProject` 用 `runCatching`，超时会进 `onFailure` 并写入 `projectErrors`，UI 应显示「⚠ 加载会话失败：…」
@@ -186,7 +193,7 @@
 - 当时**没有核实点中的是哪个项目**，实验对象不确定，不能作为证据
 - 当时宿主机侧有 5 个实例的 `/p/<id>/sessions` 请求超时不返回（18 个实例里 17 个处于 stopped 状态）；几小时后复测，18 个实例全部正常返回（17 个 running）。**那次的超时与实例处于 stopped 状态同时出现，之后没能复现**
 
-所以「超时后失败提示不出现」目前既没有被证实，也没有被否定。
+~~（下述凌晨观察的「既未证实也未否定」状态已被上文受控实验取代）~~
 
 **一个未经证实的可能机制**：`readTimeout` 计的是相邻两次收到数据之间的间隔。如果服务端在请求挂住期间仍有数据包陆续到达，`readTimeout` 不会被触发，请求可以一直挂着。是否真的发生，需要网络层日志才能确认。
 
